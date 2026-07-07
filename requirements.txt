@@ -1,0 +1,3 @@
+# 追踪验证系统依赖
+# 已有: torch, transformers, pdfplumber, PyMuPDF, openpyxl, pandas, numpy, scikit-learn
+streamlit>=1.30.0

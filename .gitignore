@@ -1,0 +1,44 @@
+# Output files (large Excel outputs)
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Graphify outputs (regenerated on demand)
+graphify-out/
+
+# Model weights (large, downloaded separately)
+model/embedder/
+model/nli/
+model/sentence_transformers/
+model/sentence_transformers-5.5.1.dist-info/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Obsidian vault (separate concern)
+.vault/
+
+# Reasonix agent state (runtime)
+.reasonix/
+
+# Windows reserved names in repo
+nul
+
+# Temp files
+*.tmp
+~$*
+*.lock
+
+# Generated reports
+compare_detail.txt
+逐行精细对比报告.txt
