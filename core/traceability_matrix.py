@@ -5,11 +5,13 @@
 - 支持一对多合并组计算
 """
 import os
+import re
 from dataclasses import dataclass, field
 from collections import defaultdict
 
 from core.pdf_parser import (
     extract_full_text, find_traceability_table, parse_traceability_table,
+    find_traceability_table_design, parse_traceability_table_design,
     TraceRelation,
 )
 from core.requirement_extractor import (
@@ -187,6 +189,28 @@ def _normalize_ds_id(raw_id: str) -> str:
     return raw_id
 
 
+def _id_core(raw_id: str) -> str:
+    """
+    提取ID的核心可比较标识，用于跨文档前缀/零填充不一致时的匹配。
+
+    例如:
+      <FZSDCS34-SyRS005>  -> "syrs5"
+      <DCS-SyRS005>       -> "syrs5"
+      <FZSDCS34-SyRS0011> -> "syrs11"   (零填充/笔误归一)
+      <DCS-SyRS011>       -> "syrs11"
+    规则: 取ID中最后一组 (字母+数字)，字母转小写、数字按整数归一。
+    """
+    s = raw_id.strip().strip('<>').replace(' ', '').replace('\n', '')
+    groups = re.findall(r'([A-Za-z]+?)(\d+)', s)
+    if not groups:
+        return s.lower()
+    alpha, num = groups[-1]
+    try:
+        return f"{alpha.lower()}{int(num)}"
+    except ValueError:
+        return f"{alpha.lower()}{num}"
+
+
 def _match_doc_name(ref_name: str, upstream_maps: dict[str, ContentMap]) -> str | None:
     """
     匹配文档名称（处理空格和格式差异）
@@ -204,3 +228,119 @@ def _match_doc_name(ref_name: str, upstream_maps: dict[str, ContentMap]) -> str 
             return doc_name
 
     return None
+
+
+def build_backward_matrix_from_design(
+    design_pdfs: dict[str, str],
+    sys_req_pdf: str,
+) -> TraceabilityMatrix:
+    """
+    从多份系统设计文档的附录追踪矩阵表构建逆向追踪矩阵（系统设计→系统需求）
+
+    与 build_backward_matrix 不同之处:
+    - 多份下游文档（系统设计），每份有自己的追踪关系表
+    - 只有一个上游文档（系统需求）
+    - 追踪关系表有两种可能结构（Type A/B）
+
+    Args:
+        design_pdfs: 系统设计文档映射 {文档名(不含.pdf): PDF路径}
+        sys_req_pdf: 系统需求文档PDF路径
+
+    Returns:
+        TraceabilityMatrix: 构建完成的逆向追踪矩阵
+    """
+    matrix = TraceabilityMatrix()
+
+    # 1. 构建系统需求文档的内容映射（上游）
+    sys_req_text = extract_full_text(sys_req_pdf)
+    sys_req_items = extract_requirement_items(sys_req_text)
+    sys_req_map = {item.item_id: item.content for item in sys_req_items}
+    print(f"    系统需求条目数: {len(sys_req_map)}")
+
+    # 核心ID索引（前缀/零填充归一），用于跨文档ID匹配
+    sys_req_core = {_id_core(k): v for k, v in sys_req_map.items()}
+
+    # 2. 遍历每份系统设计文档
+    all_relations = []  # (design_doc_name, TraceRelation)
+
+    for doc_name, pdf_path in design_pdfs.items():
+        print(f"    处理设计文档: {doc_name}")
+
+        # 2a. 查找追踪关系表
+        table = find_traceability_table_design(pdf_path)
+        if not table:
+            print(f"    [WARN] 未在 {doc_name} 中找到追踪矩阵附录表，跳过")
+            continue
+
+        # 2b. 解析追踪关系
+        relations = parse_traceability_table_design(table)
+        if not relations:
+            print(f"    [WARN] {doc_name} 追踪矩阵表解析结果为空，跳过")
+            continue
+
+        print(f"        解析到 {len(relations)} 条追踪关系")
+
+        for rel in relations:
+            all_relations.append((doc_name, rel))
+
+    if not all_relations:
+        raise ValueError("所有系统设计文档的追踪关系表解析结果均为空")
+
+    # 3. 构建每个设计文档的内容映射（下游）
+    design_maps: dict[str, dict[str, str]] = {}
+    for doc_name, pdf_path in design_pdfs.items():
+        text = extract_full_text(pdf_path)
+        design_items = extract_requirement_items(text)
+        design_map = {item.item_id: item.content for item in design_items}
+        design_maps[doc_name] = design_map
+
+    # 4. 构建矩阵行
+    # 按(design_doc, design_id)分组，分配序号
+    ds_groups = defaultdict(list)
+    for doc_name, rel in all_relations:
+        ds_id = _normalize_ds_id(rel.downstream_id)
+        ds_groups[(doc_name, ds_id)].append((doc_name, rel))
+
+    seq = 1
+    for (doc_name, ds_id), items in ds_groups.items():
+        # 获取下游（系统设计条目）内容
+        design_map = design_maps.get(doc_name, {})
+        ds_content = design_map.get(ds_id, '')
+        if not ds_content:
+            # 尝试模糊匹配
+            for key, val in design_map.items():
+                if ds_id.replace(' ', '') in key.replace(' ', ''):
+                    ds_content = val
+                    break
+
+        for _, rel in items:
+            # 查找上游（系统需求条目）内容
+            up_ref = rel.upstream_ref
+            # 归一化引用（可能是条目ID如 <DCS-SyRS001>）
+            up_ref_normalized = _normalize_ds_id(up_ref)
+            up_content = sys_req_map.get(up_ref_normalized, '')
+
+            if not up_content:
+                # 尝试模糊匹配（子串）
+                for key, val in sys_req_map.items():
+                    if up_ref_normalized.replace(' ', '') in key.replace(' ', ''):
+                        up_content = val
+                        break
+
+            if not up_content:
+                # 核心ID匹配（容错前缀/零填充差异，如 FZSDCS34-SyRS005 vs DCS-SyRS005）
+                up_content = sys_req_core.get(_id_core(up_ref_normalized), '')
+
+            matrix.add_row(TraceabilityRow(
+                seq_number=seq,
+                downstream_id=ds_id,
+                downstream_content=ds_content,
+                upstream_doc=rel.upstream_doc,
+                upstream_ref=up_ref,
+                upstream_content=up_content,
+            ))
+
+        seq += 1
+
+    matrix.compute_backward_merge_groups()
+    return matrix

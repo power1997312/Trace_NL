@@ -13,6 +13,11 @@ EMBEDDER_MODEL_PATH = os.path.join(MODEL_DIR, "embedder")
 NLI_MODEL_PATH = os.path.join(MODEL_DIR, "nli")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 
+# 系统设计文档目录
+SYSTEM_DESIGN_DIR = os.path.join(PROJECT_ROOT, "系统设计")
+# 系统需求文档目录
+SYSTEM_REQUIREMENT_DIR = os.path.join(PROJECT_ROOT, "系统需求")
+
 # ============================================================
 # 文档层级目录映射
 # ============================================================

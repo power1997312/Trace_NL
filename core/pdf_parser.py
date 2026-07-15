@@ -7,6 +7,7 @@ import re
 import fitz  # PyMuPDF
 import pdfplumber
 from dataclasses import dataclass, field
+from config import ITEM_ID_REGEX
 
 
 @dataclass
@@ -380,6 +381,164 @@ def parse_traceability_table(table: TableData) -> list[TraceRelation]:
                     upstream_ref=ref,
                     upstream_doc=doc,
                 ))
+
+    return relations
+
+
+def _norm_header(headers: list) -> str:
+    """将表头列表归一化：去除每个单元格内的所有空白(含换行)，再拼接。
+    用于关键词匹配，避免 "需求标志\\n号" 因换行导致 "标志号" 匹配失败。"""
+    return ''.join(re.sub(r'\s+', '', h or '') for h in headers)
+
+
+def find_traceability_table_design(pdf_path: str, last_n_pages: int = 8) -> TableData | None:
+    """
+    在系统设计PDF中查找追踪矩阵附录表
+
+    系统设计文档的追踪关系表特征:
+    - 表头包含 "设计条目号" / "设计标志号" / "本文档中的设计标志号" 等（设计侧标识）
+      以及 "需求条目号" / "需求编号" / "需求标志号" 等（需求侧标识）
+    - 表头中常含换行(如 "需求标志\\n号")，故先做空白归一化再匹配
+    - 表结构有两类:
+      Type A: [设计条目号, 需求条目号] — 2列
+      Type B: [其他列, 设计条目号, 需求条目号] — 3列
+
+    Args:
+        pdf_path: 系统设计PDF文件路径
+        last_n_pages: 扫描最后N页
+
+    Returns:
+        TableData or None: 找到的追踪矩阵表
+    """
+    tables = extract_tables(pdf_path, last_n_pages=last_n_pages)
+    for table in tables:
+        header_norm = _norm_header(table.headers)
+        # 原有规则（保持兼容）：设计条目号 / 条目号+需求 / 追踪关系 / 追溯
+        if ('设计条目号' in header_norm
+                or ('条目号' in header_norm and '需求' in header_norm)
+                or '追踪关系' in header_norm
+                or '追溯' in header_norm):
+            return table
+        # 扩展规则：本文/本文档侧编号(设计条目) + 需求侧编号/章节号
+        # 覆盖 "本文档中的设计标志号" + "需求标志号"
+        #   以及 "本文的需求编号" + "需求说明书 的需求编号/章节号"
+        has_self = ('本文' in header_norm) or ('本文档' in header_norm)
+        has_design_flag = ('设计' in header_norm
+                           and ('编号' in header_norm or '标志号' in header_norm or '条目号' in header_norm))
+        has_req = ('需求' in header_norm
+                   and ('编号' in header_norm or '标志号' in header_norm
+                        or '条目号' in header_norm or '章节号' in header_norm))
+        if has_req and (has_self or has_design_flag):
+            return table
+    return None
+
+
+def parse_traceability_table_design(
+    table: TableData,
+    upstream_doc_name: str = '系统需求',
+) -> list[TraceRelation]:
+    """
+    解析系统设计文档的追踪矩阵表
+
+    表结构有两类:
+      Type A (2列): [系统设计条目号, 系统需求条目号]
+      Type B (3列): [其他, 系统设计条目号, 系统需求条目号]
+    第一行为表头。系统设计条目号可以一对多（一个设计条目对应多个需求条目）。
+
+    多值单元格处理: 当"系统需求条目号"列包含换行分隔的多个值时，
+    展开为多条追踪关系。
+
+    Args:
+        table: 追踪矩阵表格数据
+        upstream_doc_name: 上游文档名称，固定为"系统需求"
+
+    Returns:
+        list[TraceRelation]: 解析出的追踪关系列表
+    """
+    relations = []
+    # 归一化表头(去除空白/换行)，便于关键词匹配
+    headers = [re.sub(r'\s+', '', h or '') for h in table.headers]
+    n_cols = len(headers)
+
+    def _is_design_col(h: str) -> bool:
+        self_ref = ('本文' in h) or ('本文档' in h)
+        has_num = ('编号' in h) or ('标志号' in h) or ('条目号' in h)
+        return (self_ref and has_num) or (('设计' in h) and has_num)
+
+    def _is_req_col(h: str) -> bool:
+        has_num = ('编号' in h) or ('标志号' in h) or ('条目号' in h) or ('章节号' in h)
+        return (('需求' in h) or ('追溯' in h) or ('追踪' in h)) and has_num
+
+    # 检测列角色（设计侧列优先，避免 "本文的需求编号" 同时被当作需求列）
+    design_candidates = [i for i, h in enumerate(headers) if _is_design_col(h)]
+    req_candidates = [i for i, h in enumerate(headers)
+                      if _is_req_col(h) and i not in design_candidates]
+
+    if design_candidates and req_candidates:
+        design_col = design_candidates[-1]
+        req_col = req_candidates[-1]
+    elif n_cols >= 2:
+        # 兜底：取最后两列
+        design_col = n_cols - 2
+        req_col = n_cols - 1
+    else:
+        return relations  # 列数不足，无法解析
+
+    current_design_id = None
+
+    def _extract_id(raw: str) -> str:
+        """从单元格中提取尖括号ID(如 <FZSDCS34-ICADS001>)，去除内部空白。
+        若无尖括号ID，则去除所有空白后整体返回。"""
+        raw = (raw or '').strip()
+        found = re.findall(ITEM_ID_REGEX, raw)
+        if found:
+            tok = found[0].strip()
+            if tok.startswith('<') and tok.endswith('>'):
+                inner = tok[1:-1].strip()
+                return f"<{inner}>"
+            return tok
+        # 无尖括号ID：去除所有空白(含换行)后返回
+        return re.sub(r'\s+', '', raw)
+
+    for row in table.rows:
+        if len(row) <= max(design_col, req_col):
+            continue
+
+        design_raw = (row[design_col] or '').strip()
+        if design_raw:
+            current_design_id = _extract_id(design_raw)
+
+        if not current_design_id:
+            continue
+
+        # 读取需求引用（可能多值）
+        # 优先按尖括号ID提取(支持同一单元格内多个 <...> 引用)
+        req_refs_raw = row[req_col] or ''
+        found_refs = re.findall(ITEM_ID_REGEX, req_refs_raw)
+        if found_refs:
+            req_refs = []
+            for r in found_refs:
+                tok = r.strip()
+                if tok.startswith('<') and tok.endswith('>'):
+                    inner = tok[1:-1].strip()
+                    req_refs.append(f"<{inner}>")
+                else:
+                    req_refs.append(tok)
+        else:
+            # 兜底：按换行分割(处理 "3、系统架构设计要求" 等章节型引用)
+            req_refs = [re.sub(r'\s+', '', r.strip())
+                        for r in req_refs_raw.split('\n') if r.strip()]
+
+        if not req_refs:
+            continue
+
+        # 每条需求引用生成一条追踪关系
+        for ref in req_refs:
+            relations.append(TraceRelation(
+                downstream_id=current_design_id,
+                upstream_ref=ref,
+                upstream_doc=upstream_doc_name,
+            ))
 
     return relations
 

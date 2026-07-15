@@ -1,613 +1,508 @@
+---
+title: 核仪控工程文档追踪验证系统 — 设计说明
+tags: [traceability, ic-design, nlp, architecture, obsidian]
+created: 2026-07-08
+updated: 2026-07-08
+---
+
 # 核仪控工程文档追踪验证系统 — 设计说明
 
-> 本文档供后续开发/AI会话快速理解系统全貌，最后更新：2026-07-03 (第二轮优化)
+> [!abstract] 摘要
+> 本系统面向核电**仪控（I&C）工程**领域，用于自动化验证上下游工程文档之间的**追踪关系（Traceability）**。核心能力是：把下游文档（如"DCS系统需求说明书""系统设计说明"）中每一条需求，与上游文档（如"用户需求""设备技术规格书""系统需求"）中的对应条目，以**微块级（Micro-block）文本匹配**方式在 Excel 中标注匹配程度：
+> - 🟢 **GREEN = 完全一致**
+> - 🔵 **BLUE = 语义匹配**
+> - ⚫ **BLACK = 未匹配**
+>
+> 系统由 PDF 双引擎解析、需求条目提取、追踪矩阵构建、微块级文本匹配引擎、Excel 着色生成、以及两类深度学习模型（嵌入 + NLI）组成，并通过逆向/正向两套矩阵分别从下游视角与上游视角呈现追踪覆盖度。
 
 ---
 
-## 1. 系统概述
+## 1. 系统定位与核心概念
 
-本系统面向核电仪控（I&C）工程领域，用于自动化验证上下游文档之间的追踪关系。典型场景：下游的"DCS系统需求说明书"中每条需求，需要追踪到上游"用户需求"或"设备技术规格书"中的对应条目，并以**微块级文本匹配**方式在Excel中标注匹配程度（绿色=完全一致、蓝色=语义匹配、黑色=未匹配）。
+### 1.1 业务背景
+核电仪控工程存在严格的文档层级链：**用户需求 → 系统需求 → 系统设计 / 软件需求 / 硬件需求**。每一层级的需求必须能够向上游"追踪"其来源，以满足合规审查与需求覆盖度验证。人工核对成本高、易遗漏，本系统提供自动化、可复盘的验证手段。
 
-### 核心能力
-- 自动解析PDF文档（双引擎：PyMuPDF提取正文 + pdfplumber提取表格）
-- 自动检测文档类型（ID型 vs 章节型），提取需求条目与章节内容
-- 构建逆向/正向追踪矩阵
-- 微块级文本匹配验证（嵌入相似度 + 字符级精确验证 + NLI语义验证）
-- 子短语级GREEN扫描（在BLACK微块内部查找完全一致的子串并标绿）
-- PDF ASCII图表噪声自动过滤
-- 短语提纯（去编号前缀和功能后缀，提升嵌入编码质量）
-- 匈牙利算法最优匹配（替代贪心，避免多对一冲突）
-- 双向标色一致性校验
-- 生成带 CellRichText 着色的 Excel 文件
-- 正向追踪矩阵独立生成（PDF完整条目覆盖 + union组合着色 + NA填充）
+### 1.2 核心术语
+
+| 术语 | 含义 |
+|---|---|
+| 下游 / 上游（Downstream / Upstream） | 下游为被验证文档（如系统需求），上游为其溯源文档（如用户需求）。 |
+| 逆向追踪矩阵（Backward） | 一行 = 一条下游条目 → 其对应的上游条目（多对一）。 |
+| 正向追踪矩阵（Forward） | 一行 = 一条上游条目 → 其对应的多条下游条目（一对多，去重转置）。 |
+| 微块（MicroBlock） | 文本经"段落→句子→短语"三级分解后的最小匹配单元。 |
+| 匹配类别（MatchCategory） | GREEN（完全一致）/ BLUE（语义匹配）/ BLACK（未匹配）。 |
+| 文档层级（DOCUMENT_LEVELS） | 定义各文档目录在追踪链中的角色与层级序号。 |
+
+### 1.3 两种业务流水线
+系统当前支持两条独立的追踪链路，二者结构对称、方向相反：
+
+- **流水线 A：系统需求 → 用户需求**（下游=系统需求，上游=用户需求）
+  - 入口：`build_backward_matrix(downstream_pdf, upstream_pdfs)`
+  - 正向视图：`generate_forward_matrix.py`（用户需求 → 系统需求）
+- **流水线 B：系统设计 → 系统需求**（下游=系统设计，上游=系统需求）
+  - 入口：`build_backward_matrix_from_design(design_pdfs, sys_req_pdf)`
+  - 正向视图：`generate_forward_sd_matrix.py`（系统需求 → 系统设计）
+
+> [!note] 文档层级映射
+> `config.DOCUMENT_LEVELS` 定义了目录角色：
+> - `用户需求` → upstream, level 0
+> - `系统需求` → midstream, level 1
+> - `系统设计` / `软件需求` / `硬件需求` → downstream, level 2/3
 
 ---
 
-## 2. 项目结构
+## 2. 系统总体架构
 
+### 2.1 分层架构视图
+
+```mermaid
+graph TD
+    subgraph IN[输入层 · 原始文档]
+        PDF1[用户需求/*.pdf]
+        PDF2[系统需求/*.pdf]
+        PDF3[系统设计/*.pdf]
+    end
+
+    subgraph PARSE[解析层 · core/pdf_parser.py]
+        BODY[PyMuPDF 正文提取]
+        TBL[pdfplumber 追踪矩阵表提取]
+    end
+
+    subgraph EXTRACT[提取层 · core/requirement_extractor.py]
+        REQ[需求条目/章节提取]
+        CMAP[ContentMap 引用解析]
+    end
+
+    subgraph MATRIX[矩阵层 · core/traceability_matrix.py]
+        BM[build_backward_matrix]
+        BMd[build_backward_matrix_from_design]
+    end
+
+    subgraph MATCH[匹配层 · core/text_matcher.py]
+        MM[match_text_pair / verify_matrix]
+    end
+
+    subgraph MODEL[模型层 · models/]
+        EMB[bge-small-zh 嵌入]
+        NLI[Erlangshen NLI]
+    end
+
+    subgraph OUT[输出层 · core/excel_generator.py + 正向矩阵模块]
+        XLS[逆向追踪矩阵.xlsx]
+        FWD[正向追踪矩阵.xlsx]
+    end
+
+    PDF1 & PDF2 --> BODY & TBL
+    PDF3 --> BODY & TBL
+    BODY --> REQ --> CMAP
+    TBL --> BM & BMd
+    CMAP --> BM & BMd
+    BM & BMd --> MM
+    EMB & NLI --> MM
+    MM --> XLS
+    XLS --> FWD
 ```
-E:\Trace_NL\
-├── config.py                      # 全局配置（阈值、路径、常量、枚举）
-├── app.py                         # Streamlit Web界面入口
-├── run_e2e_test.py                # 端到端测试脚本（命令行）
-├── compare_detail.py              # 基线对比分析工具（逐单元格逐run）
-├── compare_row_detail.py          # 基线对比分析工具（逐追踪关系）
-├── generate_forward_matrix.py     # 正向追踪矩阵生成（PDF完整条目+union着色+NA填充）
-├── requirements.txt               # Python依赖声明
-├── DESIGN.md                      # 本文档
-│
-├── core/                          # 核心业务模块
-│   ├── __init__.py
-│   ├── pdf_parser.py              # PDF双引擎解析（正文+表格）
-│   ├── requirement_extractor.py   # 需求条目/章节内容提取
-│   ├── traceability_matrix.py     # 追踪矩阵构建
-│   ├── text_matcher.py            # 微块级文本匹配引擎（核心算法）
-│   └── excel_generator.py         # 格式化Excel生成（CellRichText着色）
-│
-├── models/                        # ML模型封装
-│   ├── __init__.py
-│   ├── embedding_model.py         # bge-small-zh 嵌入模型
-│   └── nli_model.py               # Erlangshen-Roberta-110M-NLI 推理模型
-│
-├── model/                         # 模型权重与库（内嵌，无需联网下载）
-│   ├── embedder/                  # bge-small-zh (~96MB, 24M参数, 4层BERT)
-│   ├── nli/                       # NLI模型 (~409MB, 110M参数, 12层BERT)
-│   └── sentence_transformers/     # 内嵌sentence_transformers库
-│
-├── output/                        # 验证结果输出目录
-│   └── 追踪验证结果_v*.xlsx
-│
-├── 基准数据/
-│   └── Trace_Base.xlsx            # 人工标注的基准数据（用于对比评估）
-│
-├── 系统需求/                      # 下游文档PDF
-│   └── DCS需求说明书.pdf
-│
-├── 用户需求/                      # 上游文档PDF
-│   ├── DCS设备技术规格书.pdf
-│   └── RPS系统需求规范书.pdf
-│
-└── 验证报告/                      # 验证问题记录
-    ├── 问题清单.doc
-    ├── 问题清单详细分析.md
-    └── images/
-```
+
+### 2.2 模块依赖关系
+- `app.py` / `run_e2e_*.py` 为**入口层**，编排下方各层。
+- `core/traceability_matrix.py` 依赖 `pdf_parser` 与 `requirement_extractor`。
+- `core/text_matcher.py` 在运行时**懒加载** `models.*`（避免循环导入、延迟 GPU 占用）。
+- `excel_generator.py` 依赖 `text_matcher.TextRun` 与 `traceability_matrix.TraceabilityMatrix`。
+- 正向矩阵模块（`generate_forward_matrix.py` / `generate_forward_sd_matrix.py`）独立于 `excel_generator`，直接从已生成的逆向矩阵 Excel（XML 级）读取着色数据，结合上游 PDF 重建正向视图。
+
+### 2.3 关键设计原则
+1. **微块级粒度**：在匹配精度与计算开销间取平衡，以"短语"为最小匹配单元。
+2. **双向独立匹配**：下游→上游 与 上游→下游 各自分类着色，C 列与 F 列互不干扰；随后通过一致性校验与对称化保证左右视觉一致。
+3. **严格分类 + 多级回退**：取消旧版宽松 BLUE 兜底，GREEN/BLUE 均需多重验证（嵌入 + 字符级 / NLI）。
+4. **保真重建**：所有着色均从**原文**按坐标切片，避免拼接破坏原始文本与换行。
 
 ---
 
-## 3. 模块说明
+## 3. 配置与常量层（config.py）
 
-### 3.1 config.py — 全局配置
+集中管理阈值、路径、枚举，是各层共享的"单一事实来源"。
 
-定义所有可调参数、路径常量和枚举类型。
+### 3.1 路径常量
+| 常量 | 含义 |
+|---|---|
+| `PROJECT_ROOT` | 项目根目录 |
+| `MODEL_DIR` | 模型权重目录 `model/` |
+| `EMBEDDER_MODEL_PATH` | bge-small-zh 路径 |
+| `NLI_MODEL_PATH` | NLI 模型路径 |
+| `OUTPUT_DIR` | 输出目录 `output/` |
+| `SYSTEM_DESIGN_DIR` | 系统设计文档目录（新增） |
+| `SYSTEM_REQUIREMENT_DIR` | 系统需求文档目录（新增） |
 
-**关键阈值（已调优）：**
-| 参数 | 当前值 | 含义 |
+### 3.2 匹配阈值（已调优）
+| 常量 | 值 | 含义 |
 |---|---|---|
-| `EXACT_CHAR_THRESHOLD` | 0.92 | bigram Jaccard 精确匹配阈值 |
-| `EMBEDDING_EXACT_THRESHOLD` | 0.95 | 嵌入余弦相似度→进入GREEN验证路径 |
-| `EMBEDDING_SEMANTIC_THRESHOLD` | 0.70 | 嵌入余弦相似度→进入BLUE验证路径 |
-| `EMBEDDING_UNMATCHED_THRESHOLD` | 0.50 | 嵌入余弦相似度最低门槛，低于此直接BLACK |
-| `NLI_ENTAILMENT_THRESHOLD` | 0.85 | NLI蕴含概率→BLUE |
-| `NLI_NEUTRAL_EMBEDDING_THRESHOLD` | 0.80 | NLI中立+嵌入联合判定→BLUE |
+| `EXACT_CHAR_THRESHOLD` | 0.92 | bigram Jaccard 精确匹配门槛 |
+| `EMBEDDING_EXACT_THRESHOLD` | 0.95 | 嵌入余弦→进入 GREEN 验证路径 |
+| `EMBEDDING_SEMANTIC_THRESHOLD` | 0.70 | 嵌入余弦→进入 BLUE 验证路径 |
+| `EMBEDDING_UNMATCHED_THRESHOLD` | 0.50 | 嵌入最低门槛，低于直接 BLACK |
+| `NLI_ENTAILMENT_THRESHOLD` | 0.85 | NLI 蕴含概率→BLUE |
+| `NLI_NEUTRAL_EMBEDDING_THRESHOLD` | 0.80 | NLI 中立 + 嵌入联合判定→BLUE |
 | `MIN_PHRASE_LENGTH` | 4 | 短语最小字符数 |
+| `MAX_EMBEDDING_SEQ_LENGTH` | 512 | 模型最大序列长度 |
 
-**路径常量：** `PROJECT_ROOT`, `MODEL_DIR`, `EMBEDDER_MODEL_PATH`, `NLI_MODEL_PATH`, `OUTPUT_DIR`
-
-**文档层级映射 `DOCUMENT_LEVEL`：** 定义用户需求(上游)、系统需求(中游)、系统设计/软件需求/硬件需求(下游)的角色和层级。
-
-**枚举类型 `MatchCategory`：** GREEN(exact)/BLUE(semantic)/BLACK(unmatched)，附带 `.color`（Excel颜色码）和 `.priority`（优先级）属性。
-
-### 3.2 core/pdf_parser.py — PDF双引擎解析
-
-**职责：** 从PDF提取正文文本和追踪矩阵附录表。
-
-**双引擎策略：**
-- **PyMuPDF (fitz)：** 正文文本提取。优势是段落结构好，速度快。
-- **pdfplumber：** 表格提取。仅在最后8页扫描追踪矩阵附录表时使用。
-
-**文本清洗流水线（5步）：**
-1. 清除页眉页脚和密级标记（正则匹配 `"xxx 版本：x 页码：x/x"` 格式）
-2. 去除PDF私有区Unicode字符（U+F000-U+F8FF，通常是Wingdings bullet）
-3. 合并句内换行（CJK→CJK或Latin→CJK跨行合并，保留段落边界、章节标题、列表项的换行）
-4. 消除CJK-Latin伪空格（PyMuPDF根据字形间距自动插入的空格）
-5. 清理孤立bullet碎片
-
-**关键数据结构：**
-- `PageText(page_number, text)` — 单页文本
-- `TableData(page_number, headers, rows)` — 表格数据
-- `TraceRelation(downstream_id, upstream_ref, upstream_doc)` — 单条追踪关系
-
-**关键函数：**
-- `extract_body_text(pdf_path)` → `list[PageText]`
-- `find_traceability_table(pdf_path)` → `TableData | None`（扫描最后8页）
-- `parse_traceability_table(table)` → `list[TraceRelation]`（处理多值单元格）
-
-### 3.3 core/requirement_extractor.py — 需求条目/章节提取
-
-**职责：** 自动检测文档类型并提取结构化内容映射。
-
-**文档类型检测：** 全文中正则匹配 `<xxx>` 格式ID，去重后≥3个 → ID型文档，否则 → 章节型文档。
-
-**ID型提取 `extract_requirement_items`：**
-- 用 `ITEM_ID_REGEX` 匹配所有尖括号ID
-- 每个ID的内容 = 从该ID结束到下一个ID开始之间的文本
-- 同一ID多次出现时保留最长版本（处理缩略语表 vs 正文）
-- 过滤附录引用：内容长度 < 中位数×15% 的条目被过滤
-
-**章节型提取 `extract_sections`：**
-- 匹配 `"3.2.2.1 F-SC1级要求"` 等格式的章节号+标题
-- 每个章节的内容 = 从标题结束到下一个章节标题前
-
-**ContentMap 多策略引用解析（6级回退）：**
-1. 精确ID匹配
-2. 归一化ID匹配（去空格、统一全半角标点）
-3. 精确章节号匹配
-4. 精确full_key匹配（章节号+标题）
-5. 子串匹配 + 章节号前缀匹配
-6. 模糊匹配（difflib SequenceMatcher ≥ 0.7）
-
-### 3.4 core/traceability_matrix.py — 追踪矩阵构建
-
-**职责：** 整合PDF解析和内容映射，构建追踪矩阵。
-
-**构建流程 `build_backward_matrix`：**
-1. 解析下游PDF的追踪矩阵附录表 → `list[TraceRelation]`
-2. 提取下游文档内容映射 → `{item_id: content}`
-3. 为每个上游文档构建内容映射 → `ContentMap`
-4. 按下游条目分组，分配序号，逐条填充上下游内容
-5. 跨文档回退：指定文档无法解析时，尝试所有其他上游文档
-
-**数据结构：**
-- `TraceabilityRow` — 矩阵单行：序号、下游ID/内容、上游文档/引用/内容、匹配结果
-- `TraceabilityMatrix` — 矩阵容器：行列表 + 逆向/正向合并组（一对多关系）
-- `to_forward_format()` — 按(upstream_doc, upstream_ref)重新分组，生成正向矩阵
-
-### 3.5 core/text_matcher.py — 微块级文本匹配引擎（核心）
-
-**这是系统的核心算法模块，详见第4节。**
-
-### 3.6 core/excel_generator.py — Excel生成
-
-**职责：** 将追踪矩阵和匹配结果生成格式化Excel。
-
-**关键特性：**
-- 使用 openpyxl 的 `CellRichText` + `TextBlock` + `InlineFont` 实现微块级着色
-- 每个 `TextRun` 对应一个 `<r>` XML元素，拥有独立的颜色字体
-- 正确处理 `\n` 换行（在 inline string `<t>` 元素中保留）
-- 逆向矩阵Sheet（6列）；正向矩阵已移至独立模块 `generate_forward_matrix.py` 生成
-- 一对多关系通过合并单元格处理
-
-**颜色定义：**
-- GREEN: `#00B050` — 完全一致
-- BLUE: `#0070C0` — 语义匹配
-- BLACK: `#000000` — 未匹配
-- 表头: `#4472C4` 蓝底白字
-
-### 3.7 models/embedding_model.py — 嵌入模型
-
-- 模型：bge-small-zh（BAAI），4层BERT，hidden_size=512，24M参数，~96MB
-- 使用 transformers `AutoModel` 直接加载（非sentence-transformers），避免版本兼容问题
-- 懒加载（首次调用时初始化），自动检测CUDA/回退CPU
-- Mean pooling（带attention mask）+ L2归一化
-- `encode(texts, batch_size=32)` → `(N, 512)` 归一化嵌入向量
-- `cosine_similarity_matrix(a, b)` → `(M, N)` 余弦相似度矩阵（因向量已归一化，直接 `a @ b.T`）
-
-### 3.8 models/nli_model.py — NLI推理模型
-
-- 模型：Erlangshen-Roberta-110M-NLI，12层BERT，hidden_size=768，110M参数，~409MB
-- 3分类：CONTRADICTION(0), NEUTRAL(1), ENTAILMENT(2)
-- 使用 `AutoModelForSequenceClassification` 加载
-- `predict_batch(pairs, batch_size=16)` → `list[dict]`，每个 `{CONTRADICTION, NEUTRAL, ENTAILMENT}` 概率值
-
-### 3.9 generate_forward_matrix.py — 正向追踪矩阵生成
-
-**职责：** 从已完成的逆向追踪矩阵Excel中提取匹配数据，结合用户需求PDF的完整章节结构，生成独立的正向追踪矩阵Excel（用户需求 → 系统需求）。
-
-**与逆向矩阵的区别：**
-- 逆向矩阵：一条系统需求 → 对应的用户需求（多对一）
-- 正向矩阵：一条用户需求 → 对应的多条系统需求（一对多，去重转置）
-
-**核心流程（5步）：**
-
-1. **XML级RichText读取** `_read_reverse_matrix_data`：直接解析逆向矩阵Excel的XML，提取每个单元格的富文本runs（颜色+文本）。绕过openpyxl的data_only模式（可能丢失inline string颜色）。同时处理下游侧合并单元格（B/C列为空时继承前一行的ds_id）。
-
-2. **PDF完整条目提取** `_extract_pdf_items`：
-   - ID型文档：仅提取需求条目（`<RPS-SYS-RQ-001>`等），不再重复提取章节
-   - 章节型文档：提取章节，标题截断至20字符防止正文泄漏
-   - 确保正向矩阵覆盖PDF中所有章节/条目，而非仅逆向矩阵中已有的追踪关系
-
-3. **引用匹配** `_match_ref_to_item`：将逆向矩阵中的`up_ref`匹配到PDF条目。4级回退策略：
-   - 精确匹配（归一化后完全相等）
-   - 子串匹配（双方长度≥5，且非纯章节号，防止父节抢匹配）
-   - 章节号前缀匹配（精确→子节→父节）
-   - 模糊匹配（difflib ≥ 0.7）
-
-4. **Union Coloring组合合并** `_compute_union_coloring`：当同一用户需求对应多条系统需求时，对每个字符位置取所有匹配中优先级最高的颜色：GREEN > BLUE > BLACK。实现"需求覆盖完成度"的可视化——绿色/蓝色部分表示被至少一条系统需求覆盖。
-
-5. **Excel生成** `generate_forward_excel`：每份用户需求文档一个独立sheet。上游内容（C列）合并单元格并使用union着色；下游内容（F列）按每条追踪关系独立着色；无追踪关系的条目下游填"NA"。
-
-**关键数据结构：**
-```python
-# 正向矩阵条目
-{
-    'up_text': str,           # 用户需求内容
-    'up_runs': list[(rgb, text)],  # union着色runs
-    'up_category': MatchCategory,  # 整体类别
-    'sys_reqs': [{            # 系统需求列表
-        'ds_id': str, 'ds_text': str,
-        'ds_runs': list, 'ds_category': MatchCategory,
-    }],
-    'has_trace': bool,        # 是否有追踪关系
-}
-```
-
-**输出格式（6列）：**
-| 列 | 含义 | 合并规则 |
-|---|---|---|
-| A 序号 | 自增序号 | 一对多时合并 |
-| B 上游条目号 | 用户需求条目号/章节号 | 一对多时合并 |
-| C 上游内容 | 用户需求内容（union着色） | 一对多时合并 |
-| D 下游文档 | 系统需求文档名 | 每行独立 |
-| E 下游条目号 | 系统需求条目号 | 每行独立 |
-| F 下游内容 | 系统需求内容（按该条追踪关系着色） | 每行独立 |
+### 3.3 MatchCategory 枚举
+- `GREEN`（exact）：`.color = "00B050"`，`.priority = 3`
+- `BLUE`（semantic）：`.color = "0070C0"`，`.priority = 2`
+- `BLACK`（unmatched）：`.color = "000000"`，`.priority = 1`
+- 优先级用于合并单元格的 Union 着色（`GREEN > BLUE > BLACK`）。
 
 ---
 
-## 4. 文本匹配算法详解
+## 4. 核心模块职责（core/）
 
-### 4.1 match_text_pair 完整流水线
+### 4.1 PDF 双引擎解析（pdf_parser.py）
 
-对每对（下游文本, 上游文本）执行以下完整流程：
+#### 4.1.1 双引擎策略
+- **PyMuPDF (`fitz`)**：负责正文文本提取 `extract_body_text()`，段落结构好、速度快；对外统一封装为 `extract_full_text()`（拼接全部页）。
+- **pdfplumber**：仅用于追踪矩阵附录表提取 `extract_tables(last_n_pages=8)`，因附录固定在文档末尾。
 
-**Pre-Stage：文本预处理**
-1. **ASCII图表噪声清理** `_strip_ascii_noise_for_matching`：检测并移除连续短ASCII行（≥2行连续无CJK字符的短行），返回 `(cleaned_text, pos_map)` 位置映射表
-2. **段落级前缀归一化** `_normalize_text_for_decomposition`：去除行首列表标记（`-`/`•`/`1)`等），合并因PDF换行导致的碎片化短行（<15字符非列表项行与前一行合并），返回 `(normalized_text, pos_map)`
-3. **三级微块分解** `decompose_text`：段落→句子→短语
+#### 4.1.2 文本清洗流水线（5 步，PyMuPDF 路径）
+1. 清除页眉页脚 / 密级标记（正则匹配 `版本：x 页码：x/x`）。
+2. 去除 PDF 私有区 Unicode 字符（U+F000–U+F8FF，Wingdings bullet）。
+3. 合并句内换行（CJK→CJK、Latin→CJK 跨行合并；保留段落边界、章节标题、列表项的换行）。
+4. 消除 CJK-Latin / Latin-Digit / 列表编号后的 PDF 伪空格。
+5. 清理孤立 bullet 碎片。
 
-**坐标系统：**
-- 保存每个微块的 `_clean_start`（cleaned-text坐标，在位置重映射之前）
-- 调用 `_remap_block_positions` 将 `block.start/end` 从 cleaned-text 坐标映射回原文坐标
-- 后续子短语GREEN使用 `_clean_start` + `pos_map` 进行正确的坐标转换
+> [!info] 章节标题识别
+> `_SECTION_HEADING_RE` 在合并前预扫描标记所有章节标题行，避免被误并入上一行，保障下游章节型提取准确。
 
-**Stage 0：嵌入编码**
-- 对每个微块进行**短语提纯** `_purify_phrase`：去除编号前缀和功能类型词后缀（如"功能"、"系统"、"模块"），得到 `clean_text`
-- 使用提纯后的文本（如有）编码为嵌入向量，提升嵌入质量
-- 计算余弦相似度矩阵 `(M×N)`
+#### 4.1.3 追踪矩阵附录表解析（两类文档）
+- **系统需求类** `find_traceability_table` / `parse_traceability_table`：表头含"条目号/追踪/上游"，典型结构 `[本文需求条目号, 上游文件章节/需求号, 说明]`，处理多值单元格（按换行拆分并对齐文档名）。
+- **系统设计类** `find_traceability_table_design` / `parse_traceability_table_design`（新增）：表头含"设计条目号/需求条目号"，支持两类结构：
+  - Type A（2 列）：`[设计条目号, 需求条目号]`
+  - Type B（3 列）：`[其他, 设计条目号, 需求条目号]`
+  - 需求条目号列为多值时展开为多条 `TraceRelation`，上游文档固定为"系统需求"。
 
-**Stage 1：最优匹配** `_optimal_matching`
-- 使用**匈牙利算法**（`scipy.optimize.linear_sum_assignment`）计算最优二分匹配
-- 约束：相似度 < `EMBEDDING_UNMATCHED_THRESHOLD` 的匹配对设极大代价（不会被选中）
-- 回退：scipy不可用时使用约束性贪心匹配
-- 返回两个方向的匹配映射：`ds_matches`(下游→上游) 和 `up_matches`(上游→下游)
+关键数据结构：`PageText`、`TableData`、`TraceRelation(downstream_id, upstream_ref, upstream_doc)`。
 
-**Stage 2：分类判定** `_classify_block`
-- 下游→上游：对每个下游微块，使用其最优匹配的上游块进行分类
-- 上游→下游：对每个上游微块，使用其最优匹配的下游块进行分类
-- 两个方向独立分类（详见4.3节决策树）
+### 4.2 需求提取与内容映射（requirement_extractor.py）
 
-**Stage 3：子短语GREEN扫描** `_apply_subphrase_green`
-- 双向独立执行：下游→上游 和 上游→下游
-- 对BLACK微块内部查找与对侧完全一致的子串（≥8字符），标为GREEN
-- 使用 `pos_map` 和 `_clean_start` 将children坐标从块文本本地坐标正确转换为原文坐标（详见4.5节）
+#### 4.2.1 文档类型检测 `detect_document_type`
+全文正则匹配 `<xxx>` 格式 ID，去重后 ≥3 个 → **ID 型**，否则 → **章节型**。
 
-**Stage 4：双向标色一致性校验** `_ensure_bidirectional_consistency`
-- 当下游块为GREEN/BLUE时，其对应的上游块不应为BLACK（反之亦然）
-- 取两者中较高的类别作为统一类别（需相似度≥阈值才升级）
-- 注意：此机制仅同步**块级**类别，不同步子短语children
+#### 4.2.2 条目 / 章节提取
+- **ID 型** `extract_requirement_items`：每个 ID 内容 = 该 ID 结束到下一个 ID 开始之间的文本；同 ID 多次出现保留最长版本；过滤过短附录引用（阈值 = `max(20, 中位数×0.15)`）；超长条目二次清洗 ASCII 噪声。
+- **章节型** `extract_sections`：匹配 `3.2.2.1 F-SC1级要求` 等章节号+标题，内容取到下一章节前。
 
-**Stage 5：着色重建** `_blocks_to_runs`
-- 将微块列表合并为 `TextRun` 列表（相邻同色微块合并为一个run）
-- 使用原文切片保真重建（从原文按 `(start, end)` 位置切片）
-- 支持子短语GREEN：有children的块分解为 BLACK/BLACK/GREEN/BLACK/GREEN... 细粒度runs
+#### 4.2.3 ContentMap 多策略引用解析（6 级回退）
+1. 精确 ID 匹配
+2. 归一化 ID 匹配（去空格、统一全半角）
+3. 精确章节号匹配
+4. 精确 full_key（`章节号+标题`）匹配
+5. 子串匹配 + 章节号前缀匹配（最长匹配优先）
+6. 模糊匹配（difflib `SequenceMatcher ≥ 0.7`）
 
-### 4.2 三级微块分解
+#### 4.2.4 内容清洗与噪声剥离 `_clean_content`
+- 折叠连续换行为单行；逐行 strip。
+- 移除 ASCII 架构图 / 表格噪声（`_remove_ascii_diagrams`：连续≥3 噪声行或噪声占比>30% 时整块清除）。
+- 剥离尾部泄漏的**章节标题**（`_strip_trailing_headings`）与**附录表引用文本**（`_strip_trailing_appendix_refs`），防止正文越界。
 
-将文本逐层拆解为最细粒度的短语单元：
+### 4.3 追踪矩阵构建（traceability_matrix.py）
 
+#### 4.3.1 数据模型
+- `TraceabilityRow(seq_number, downstream_id, downstream_content, upstream_doc, upstream_ref, upstream_content, match_result)`
+- `TraceabilityMatrix`：行列表 + `backward_merge_groups`（下游侧一对多合并）/ `forward_merge_groups`（上游侧一对多合并）。
+- `to_forward_format()`：按 `(upstream_doc, upstream_ref)` 重新分组，产出正向矩阵行。
+
+#### 4.3.2 逆向矩阵构建（两类入口）
+- **`build_backward_matrix`**（流水线 A）：解析下游 PDF 附录表 → 提取下游内容映射 → 为各上游文档构建 `ContentMap` → 按下游条目分组填充 → 计算合并组。
+- **`build_backward_matrix_from_design`**（流水线 B，新增）：遍历多份系统设计 PDF 的附录表（Type A/B）→ 构建系统需求内容映射（单一上游）→ 按 `(doc_name, ds_id)` 分组填充。
+
+> [!warning] 跨文档回退策略变更
+> 当前 `build_backward_matrix` 中已**取消"指定文档解析失败时尝试所有其他上游文档"**的回退，以避免跨文档内容串稿，仅保留同一文档内的模糊匹配。
+
+#### 4.3.3 合并组计算
+- `compute_backward_merge_groups()`：同 `seq_number` 下多行 → 下游侧 A/B/C 列合并。
+- `compute_forward_merge_groups()`：正向矩阵上游侧 A/B/C 列合并。
+
+### 4.4 微块级文本匹配引擎（text_matcher.py）— 系统核心
+
+#### 4.4.1 数据模型
+- `MicroBlock(text, level, start, end, category, children, clean_text)`：`level` 0=段落/1=句子/2=短语；`children` 存储子短语 GREEN 的 `(start, end, len)`；`clean_text` 为提纯后文本（用于嵌入编码）。
+- `TextRun(text, category)`：着色运行单元，一一对应 Excel 富文本的 `<r>`。
+- `MatchResult(downstream_runs, upstream_runs, overall_category, downstream_text, upstream_text)`。
+
+> [!note] 动态属性 `_clean_start`
+> 在 `_remap_block_positions` 之前，代码动态为 block 注入 `b._clean_start = b.start`，记录该块在 **cleaned-text 坐标**中的起始位置，供后续子短语 GREEN 做坐标重映射（见 4.4.2）。
+
+#### 4.4.2 坐标系统（关键实现细节）
+文本经过噪声清理与归一化后，块的位置坐标需经历两次空间：
+- **cleaned-text 坐标**：噪声清理 / 前缀归一化后的坐标，由 `pos_map` 映射到原文。
+- **original-text 坐标**：原始 PDF 文本坐标，最终着色切片基于此。
+
+流程：
+1. `decompose_text(clean_text)` 得到块，记录 `block.start/end`（cleaned-text 坐标）。
+2. 保存 `block._clean_start = block.start`。
+3. `_remap_block_positions(blocks, pos_map)`：用 `pos_map` 将 `start/end`（以及已有 `children`）从 cleaned-text 坐标改写为 original-text 坐标。
+4. 子短语 GREEN 找到的 children 位于块文本本地坐标，需经 `_clean_start + 本地坐标 → pos_map → original-text 坐标` 还原，确保着色精准贴合原文。
+
+#### 4.4.3 match_text_pair 流水线（逐对匹配入口）
+完整阶段见第 6 节。宏观上依次执行：预处理 → 嵌入编码 → 最优匹配 → 双向分类 → 子短语 GREEN → 双向一致性 → 对称着色 → 着色重建。
+
+### 4.5 Excel 生成（excel_generator.py）
+
+#### 4.5.1 CellRichText 着色
+- 使用 openpyxl `CellRichText` + `TextBlock` + `InlineFont`，每个 `TextRun` 一个独立 `<r>`，颜色由 `category.color` 决定。
+- 正确处理 `\n` 换行（inline string `<t>` 元素保留）。
+- 逆向矩阵 Sheet（6 列）：`序号 / 下游条目号 / 下游内容 / 上游文档 / 上游条目号·章节 / 上游内容`。
+
+#### 4.5.2 合并单元格与 Union 着色
+- 一对多关系通过合并 A/B/C（下游）或 A/B/C（上游）列实现。
+- `_union_text_runs`：同一下游条目对应多行时，对每个字符位置取最高优先级颜色（`GREEN>BLUE>BLACK`），直观体现"需求覆盖完成度"。
+
+---
+
+## 5. 模型调用原理（models/）
+
+> [!info] 模型内嵌
+> 模型权重位于 `model/` 目录（embedder / nli），**无需联网下载**。`model/sentence_transformers/` 虽内嵌，但当前代码直接用 `transformers.AutoModel` 加载，不依赖该库。
+
+### 5.1 嵌入模型（embedding_model.py）
+- **bge-small-zh**（BAAI）：4 层 BERT，hidden_size=512，24M 参数，约 96MB。
+- `encode(texts, batch_size=32)` → `(N, 512)` L2 归一化向量；采用 **Mean Pooling（带 attention mask）**。
+- `cosine_similarity_matrix(a, b)` → 因向量已归一化，直接 `a @ b.T`。
+- 加载方式：`AutoModel` 直接加载（规避 sentence-transformers 版本兼容问题）。
+
+### 5.2 NLI 模型（nli_model.py）
+- **Erlangshen-Roberta-110M-NLI**：12 层 BERT，hidden_size=768，110M 参数，约 409MB。
+- 3 分类：`CONTRADICTION(0) / NEUTRAL(1) / ENTAILMENT(2)`。
+- `predict_batch(pairs, batch_size=16)` → 每对 `{"CONTRADICTION","NEUTRAL","ENTAILMENT"}` 概率。
+
+### 5.3 懒加载与设备选择
+- 两模型均在首次调用时 `_load_model()` 初始化，自动检测 CUDA（校验 `compute_capability ≤ 90` 以防架构不兼容）→ 回退 CPU。
+- `text_matcher` 在函数体内 `from models... import` 实现懒加载，避免循环导入与过早占用 GPU。
+
+---
+
+## 6. 文本匹配算法详解
+
+> 本节聚焦核心模块 `text_matcher.py`，按 `match_text_pair` 的执行顺序（宏观→微观）展开。
+
+### 6.1 三级微块分解（`decompose_text`）
 ```
-段落（按\n分割）
-  └→ 句子（按句末标点分割：。；;！!？?）
-       └→ 短语（按逗号/顿号/冒号/分号/句号/破折号分割）
+段落（按 \n 分割）
+  └→ 句子（按 。；；！？？ 分割）
+       └→ 短语（按 ，、：；。. \n / —— 分割）
 ```
+- 短语分割正则：`(?<=[，、,：:；;.。\n])\s*|(?=——)`
+- 列表项正则：`^\s*(\d+[)）]|[a-zA-Z][)）]|[-•●](?:\s|(?=[\u4e00-\u9fff])))`
+- 过短短语（< `MIN_PHRASE_LENGTH`）与相邻合并，保持位置追踪。
+- 每个微块记录 `(start, end)`，后续从原文切片保真重建。
+- `decompose_text` 后对每个短语执行**结构化短语提纯** `_purify_phrase`，结果存入 `clean_text`（用于嵌入编码；原文 `text` 仍用于着色）。
 
-**短语分割正则：** `(?<=[，、,：:；;.。\n])\s*|(?=——)`
-**列表项正则：** `^\s*(\d+[)）]|[a-zA-Z][)）]|[-•●](?:\s|(?=[\u4e00-\u9fff])))`
+### 6.2 Pre-Stage：预处理
+1. **ASCII 噪声清理** `_strip_ascii_noise_for_matching`：仅对长度≥100 的文本，检测连续≥2 行无 CJK 的短 ASCII 行（或技术标签 `PIPS-1` 等），移除并返回 `(cleaned_text, pos_map)`。
+2. **段落级前缀归一化** `_normalize_text_for_decomposition`：去除行首列表标记，合并因 PDF 换行导致的碎片化短行（<15 字符非列表项），返回 `(normalized_text, pos_map)`。
 
-**短短语合并：** 少于 `MIN_PHRASE_LENGTH`（当前4字符）的短语与相邻短语合并，保持位置追踪。
+### 6.3 Stage 0：嵌入编码
+- 对每个微块使用 `clean_text`（提纯后）编码；计算余弦相似度矩阵 `(M×N)`。
 
-**位置追踪：** 每个微块记录其在原文中的 `(start, end)` 位置，用于后续保真重建（从原文切片而非拼接）。
+### 6.4 Stage 1：最优匹配（`_optimal_matching`）
+- 使用 **匈牙利算法** `scipy.optimize.linear_sum_assignment` 计算最优二分匹配。
+- 约束：相似度 < `EMBEDDING_UNMATCHED_THRESHOLD` 的位置设代价 100（不会被选中）。
+- 回退：`scipy` 不可用时用 `_constrained_greedy_matching`（按相似度降序、每侧最多匹配一次，避免多对一冲突）。
+- 返回 `ds_matches`（下游→上游）与 `up_matches`（上游→下游）两个方向映射。
 
-### 4.3 分类决策树（`_classify_block`）
+### 6.5 Stage 2：分类判定（`_classify_block`）
+对下游→上游与上游→下游**双向独立**执行。决策树（严格无兜底 + 多级回退）：
 
 ```
 嵌入相似度 < 0.50 ?
-  └→ 是 → BLACK（直接排除，不做任何后续计算）
+  └→ 是 → BLACK（直接排除）
 
 嵌入相似度 ≥ 0.95 ?
-  └→ GREEN路径（精确匹配验证）
+  └→ GREEN 路径（精确验证）
        ├─ 路径1: bigram Jaccard ≥ 0.92 → 通过
-       ├─ 路径2: char_set Jaccard ≥ 0.88 且 LCS比率 ≥ 0.80 → 通过
-       └─ 通过后检查: 长度比 ≥ 0.70 → GREEN
-                     长度比 < 0.70 → 降级到下方路径
+       ├─ 路径2: char_set Jaccard ≥ 0.88 且 LCS 比率 ≥ 0.80 → 通过
+       └─ 通过后检查: 长度比 ≥ 0.70 → GREEN；否则降级
 
-Stage 2a-fallback: 归一化后文本完全一致 → GREEN
-  └→ 条件: 嵌入≥0.85 + 归一化文本完全相等 + 长度≥8字符 + 原始长度比≥0.50
-  └→ 目的: 处理嵌入模型对微小后缀差异(如"功能")过度敏感的情况
+Stage 2a-fast: 双方原文完全一致且 ≤10 字符 → GREEN（绕过嵌入/bigram）
+Stage 2a-fallback: 嵌入 ≥0.85 + 归一化后文本完全一致 + 长度 ≥4 + 长度比 ≥0.50 → GREEN
 
 嵌入相似度 ≥ 0.70 ?
-  └→ BLUE路径（语义匹配验证）
-       ├─ NLI矛盾概率 ≥ 0.80 → BLACK
-       ├─ NLI蕴含概率 ≥ 0.85 且 char_set Jaccard ≥ 0.35 → BLUE
-       │   └→ 或: 蕴含≥0.90 且 char_set≥0.30 → BLUE（容忍短语分解粒度差异）
-       ├─ NLI中立概率 ≥ 0.80 且 嵌入 ≥ 0.80 且 char_set Jaccard ≥ 0.40 → BLUE
-       └→ 其余继续到下方
+  └→ BLUE 路径（语义验证，调用 NLI）
+       ├─ 矛盾概率 ≥ 0.80 → BLACK
+       ├─ 蕴含 ≥ 0.85 且 char_set ≥ 0.35 → BLUE
+       │   └─ 或 蕴含 ≥ 0.90 且 char_set ≥ 0.30 → BLUE（容忍分解粒度差异）
+       ├─ 中立 ≥ 0.80 且 嵌入 ≥ 0.80 且 char_set ≥ 0.40 → BLUE
+       └─ 否则继续
 
-Stage 2c: 高嵌入回退BLUE（无需NLI）
-  └→ 条件: 嵌入≥0.85 + (LCS≥0.55 或 char_set≥0.60) → BLUE
-
-Stage 2d: 中等嵌入 + 高字符重叠 → BLUE
-  └→ 条件: 嵌入≥0.75 + char_set≥0.55 + LCS≥0.45 → BLUE
-  └→ 目的: 处理上下游短语分解粒度不同导致的嵌入稀释
+Stage 2c: 嵌入 ≥ 0.85 + (LCS ≥ 0.55 或 char_set ≥ 0.60) → BLUE（无需 NLI）
+Stage 2d: 嵌入 ≥ 0.75 + char_set ≥ 0.55 + LCS ≥ 0.45 → BLUE
 
 其余 → BLACK
 ```
 
-**设计要点：**
-- **无兜底策略：** 取消了旧版 `if embedding >= 0.70: return BLUE` 的宽松兜底，严格控制BLUE比例
-- **双路径GREEN：** 路径1（bigram）对完全一致最严格；路径2（char_set + LCS）容忍后缀差异（如"采集来自本保护组PIPS的信号" vs "采集来自本保护组PIPS"）
-- **归一化GREEN回退：** 处理嵌入模型对"功能"等后缀差异过度敏感的情况，要求足够长的文本（≥8字符）和合理的长度比
-- **多级BLUE回退：** Stage 2b(NLI) → 2c(高嵌入+LCS) → 2d(中嵌入+高字符重叠)，逐级放宽条件
-- **BLUE文本重叠验证：** NLI蕴含即使高分，也要求char_set≥0.35，避免纯语义相近但内容完全不同的文本被标BLUE
-- **PDF字符混淆归一化：** 在字符级比较前进行上下文感知的归一化（l→1: 大写字母/数字上下文中的l; O→0: 数字序列中的O），提升匹配准确性
+> [!note] NLI 调用受门控
+> NLI 仅在 `embedding_sim ≥ EMBEDDING_SEMANTIC_THRESHOLD(0.70)` 时才被调用，且当前实现为**逐对** `predict_batch([(a,b)])`（见 §11.4 优化方向）。
 
-### 4.4 短语提纯（`_purify_phrase`）
+### 6.6 Stage 3：子短语 GREEN 扫描（`_apply_subphrase_green`）
+当短语级为 BLACK 时，在块内部查找与对侧**完全一致**的子串标为 GREEN。
+- 实际阈值（代码常量）：`_MIN_GREEN_SUBSTR_LEN = 4`，`_MIN_BLOCK_SIM_FOR_SUBPHRASE = 0.45`，`_MAX_GREEN_SUBSTRS_PER_BLOCK = 3`。
+  > ⚠️ 旧文档记作 8 / 0.60，与当前代码不符，已在此修正。
+- 算法：取 top-5 候选 → DP 查找最长公共子串（≥4 字符，归一化后比较）→ bigram Jaccard ≥ 0.92 验证 → 去重（移除被包含短串）→ 贪心选非重叠集合（最多 3）→ 验证 GREEN 总长 ≤ 块文本 90% → **坐标映射**写入 `block.children`。
+- 双向独立执行：下游→上游、上游→下游各一次。
 
-对分解后的短语进行提纯，去除不影响语义的修饰成分，提升嵌入编码质量：
+### 6.7 Stage 4：双向标色一致性校验（`_ensure_bidirectional_consistency`）
+- 当一侧为 GREEN/BLUE 而其对侧块为 BLACK 时，取较高类别统一。
+- 升级门槛：含 children 时用 `_MIN_BLOCK_SIM_FOR_SUBPHRASE`（0.45），否则用 `EMBEDDING_SEMANTIC_THRESHOLD`（0.70）。
+- **仅同步块级类别**，不同步子短语 children。
 
-1. **去编号前缀：** 去除 `"1)"`, `"2）"`, `"a)"`, `"- "` 等列表标记
-2. **去尾部标点：** 去除 `；;。，,` 等尾部标点
-3. **去功能类型词后缀：** 当短语长度>6字符时，去除 `"功能"`, `"系统"`, `"模块"`, `"装置"`, `"单元"`, `"组件"` 等后缀词
-4. **提纯后的文本 `clean_text`** 用于嵌入编码，原始文本 `text` 用于输出着色
+### 6.8 Stage 5→6：对称着色（TextRun 级）
+- `_blocks_to_runs`：将微块合并为 `TextRun`，相邻同色合并，从原文切片保真；有 children 时调用 `_blocks_to_runs_subphrase` 细粒度交替 GREEN/BLACK（含重叠回退安全路径）。
+- **Stage 6 对称化** `_symmetrize_text_runs`（新增）：以对侧 GREEN run 为参照，在本侧 BLACK run 中查找相同子串并标绿，消除左右视觉不对称。替代了原先依赖未实现辅助函数的子短语交叉标记方案（见 §11.3）。
 
-### 4.5 子短语GREEN扫描（`_apply_subphrase_green`）
-
-当短语级别的匹配为BLACK时，在短语内部查找与对侧文本完全一致的子串，将其标为GREEN。
-
-**保守策略参数：**
-- `_MIN_GREEN_SUBSTR_LEN = 8`：最短GREEN子串长度（避免"个保护组"等短片段误匹配）
-- `_MAX_GREEN_SUBSTRS_PER_BLOCK = 3`：每块最多3个GREEN子串
-- `_MIN_BLOCK_SIM_FOR_SUBPHRASE = 0.45`：块级嵌入相似度低于此值不扫描（避免跨语义上下文匹配）
-
-**算法流程：**
-1. 对每个BLACK块，检查最佳候选的嵌入相似度（≥0.45才继续）
-2. 取top-2候选块，用DP算法查找最长公共子串（≥8字符，归一化后比较）
-3. 验证bigram Jaccard ≥ 0.92
-4. 去重：移除被更长子串完全包含的短子串
-5. 贪心选择最优非重叠子串集合（按长度降序，最多3个）
-6. 验证GREEN子串总长度 ≤ 块文本的90%
-7. **坐标映射：** 将children从块文本本地坐标转换为原文坐标
-
-**坐标映射细节（关键修复）：**
-- `_apply_subphrase_green` 接收 `pos_map` 参数
-- children中的位置 `(s, e)` 是相对于 `block.text`（cleaned text）的本地坐标
-- 转换为绝对cleaned-text坐标：`abs_clean_s = block._clean_start + s`
-- 通过pos_map映射到原文坐标：`new_s = pos_map[abs_clean_s]`, `new_e = pos_map[abs_clean_e - 1] + 1`
-- `_clean_start` 在 `_remap_block_positions` 之前保存，记录块在cleaned-text中的起始位置
-
-### 4.6 ASCII图表噪声清理（`_strip_ascii_noise_for_matching`）
-
-PDF中嵌入的表格/图表常被提取为连续短ASCII行（如 `"PIPS-1"`, `"ESFAC-A1"`, `"≥1"` 等），干扰匹配。此预处理步骤将其移除。
-
-**检测逻辑：**
-- 逐行扫描，检测连续≥2行无CJK字符且长度≤8（或匹配技术标签正则）的行
-- 技术标签正则 `_TECH_LABEL_RE`：纯ASCII短标签（字母/数字/运算符组成，长度≤8）
-
-**输出：**
-- `cleaned_text`：移除噪声行后的文本
-- `pos_map`：`pos_map[i]` = cleaned_text第i个字符在原文中的位置（用于后续坐标重映射）
-- 仅对长度≥100的文本执行（短文本不太可能包含ASCII图表）
-
-### 4.7 字符级相似度函数
-
+### 6.9 字符级相似度函数
 | 函数 | 算法 | 用途 |
 |---|---|---|
-| `_char_bigram_jaccard` | 字符二元组的集合Jaccard | GREEN路径1（最严格） |
-| `_char_set_jaccard` | 去重字符集的Jaccard | GREEN路径2 + BLUE重叠验证 |
-| `_lcs_ratio` | 最长公共子序列比率（O(n²) DP，200字符截断，滚动数组优化） | GREEN路径2 + BLUE回退 |
-| `_normalize_for_char_compare` | 全角→半角、去PUA字符、去bullet/空白、去编号前缀、去功能后缀、PDF字符混淆归一化 | 所有字符级比较的前置归一化 |
+| `_char_bigram_jaccard` | 字符二元组集合 Jaccard | GREEN 路径1（最严格） |
+| `_char_set_jaccard` | 去重字符集 Jaccard | GREEN 路径2 + BLUE 重叠验证 |
+| `_lcs_ratio` | 最长公共子序列比率（O(n²) DP，200 字符截断，滚动数组） | GREEN 路径2 + BLUE 回退 |
+| `_normalize_for_char_compare` | 全角→半角、去 PUA、去 bullet/编号前缀/功能后缀、PDF 字符混淆归一化 | 所有字符级比较前置 |
 
-**`_normalize_for_char_compare` 归一化步骤（按顺序）：**
-1. 全角→半角标点映射（（→(, ）→), ：→:, ，→, 等）
-2. 去PDF私有区字符（U+F000-U+F8FF）
-3. 去列表标记和bullet符号
-4. 去数字/字母编号前缀（`1)`, `2）`, `a)` 等，使GREEN匹配对编号差异免疫）
-5. 去空格和换行
-6. 去尾部标点
-7. 去功能类型词后缀（`功能|系统|模块|装置|单元|组件`，使GREEN匹配对后缀差异免疫）
-8. PDF字符混淆归一化：`l→1`（大写字母/数字上下文）、`O→0`（数字序列中）
+`_normalize_for_char_compare` 步骤：全半角映射 → 去 PUA → 去列表标记 → 去编号前缀 → 去空格换行 → 去尾部标点 → 去功能后缀 → **上下文感知 PDF 字符混淆归一化**（`l→1`：大写/数字上下文；`O→0`：数字序列中）。
 
-### 4.8 着色重建（`_blocks_to_runs`）
-
-将微块列表合并为 `TextRun` 列表（相邻同色微块合并为一个run），使用原文切片保真重建：
-- 从原文中按 `(start, end)` 位置切片，而非直接拼接微块文本
-- 颜色变化时，run间的空白字符（含单个换行）归入前一个run
-- 避免逗号/换行拼接破坏原文完整性
-
-**子短语GREEN模式（`_blocks_to_runs_subphrase`）：**
-- 当存在有children的GREEN块时启用
-- 将GREEN块分解为：BLACK(前缀) + GREEN(子串1) + BLACK(间隔) + GREEN(子串2) + ... + BLACK(后缀)
-- 安全性：检测块位置重叠时回退到标准处理，防止文本重复
-
-### 4.9 双向标色一致性（`_ensure_bidirectional_consistency`）
-
-确保下游和上游的标色逻辑一致：
-- 当下游块为GREEN/BLUE时，其最优匹配的上游块不应为BLACK（反之亦然）
-- 取两者中较高的类别统一（需嵌入相似度≥`EMBEDDING_SEMANTIC_THRESHOLD`才升级）
-- **已知限制：** 此机制仅同步块级类别，不同步子短语children。因此可能出现一侧有GREEN子短语而另一侧没有的情况（因为 `_apply_subphrase_green` 在两侧独立运行，处理的文本不同）
+### 6.10 短语提纯（`_purify_phrase`）
+提升嵌入编码质量：去编号前缀（`1)`/`a)`/`- `）→ 去尾部标点 → 去功能类型词后缀（长度>10 时去除 `功能|系统|模块|装置|单元|组件`）。提纯文本 `clean_text` 用于编码，原文 `text` 用于着色。
 
 ---
 
-## 5. 数据流管线
+## 7. 正向追踪矩阵生成
 
-```
-PDF文档
-  │
-  ├─→ pdf_parser.extract_body_text()     → 正文文本（清洗后）
-  ├─→ pdf_parser.find_traceability_table() → 追踪矩阵附录表
-  │     └→ parse_traceability_table()      → list[TraceRelation]
-  │
-  ├─→ requirement_extractor.extract_requirement_items() → {ID: content}
-  ├─→ requirement_extractor.build_content_map()         → ContentMap
-  │
-  └─→ traceability_matrix.build_backward_matrix()
-        │  整合追踪关系 + 上下游内容
-        └→ TraceabilityMatrix
-              │
-              └─→ text_matcher.verify_matrix()
-                    │  逐行调用 match_text_pair()
-                    │    ├─ _strip_ascii_noise_for_matching() → cleaned_text + pos_map
-                    │    ├─ _normalize_text_for_decomposition() → 前缀归一化 + pos_map
-                    │    ├─ decompose_text()                    → 微块列表
-                    │    ├─ 保存 _clean_start + _remap_block_positions()
-                    │    ├─ _purify_phrase() → clean_text (提纯后用于嵌入编码)
-                    │    ├─ embedding_model.encode()            → 嵌入向量
-                    │    ├─ 余弦相似度矩阵
-                    │    ├─ _optimal_matching()                 → 匈牙利最优匹配
-                    │    ├─ _classify_block()                   → GREEN/BLUE/BLACK
-                    │    ├─ _apply_subphrase_green() × 2方向    → 子短语GREEN
-                    │    ├─ _ensure_bidirectional_consistency() → 双向一致性
-                    │    └─ _blocks_to_runs()                   → TextRun列表
-                    └→ match_result 写入每行
-                          │
-                          └─→ excel_generator.generate_excel()
-                                └─→ 带 CellRichText 着色的逆向追踪矩阵 Excel
-                                      │
-                                      └─→ generate_forward_matrix.generate_forward_matrix()
-                                            │  从逆向矩阵XML读取着色数据
-                                            │  从用户需求PDF提取完整条目
-                                            │  匹配引用 + union着色
-                                            → 正向追踪矩阵 Excel（独立文件，每份用户文档一个sheet）
+两类正向矩阵模块结构对称，均**不从零重跑匹配算法**，而是复用逆向矩阵已着色的运行数据。
+
+### 7.1 用户需求 → 系统需求（`generate_forward_matrix.py`）
+- `generate_forward_matrix(reverse_path, user_pdf_dir, forward_path, sys_req_dir)`
+- 五步：① XML 级 RichText 读取 `_read_reverse_matrix_data`（直接解析 xlsx 内联字符串 runs，绕过 `data_only` 颜色丢失；处理下游合并单元格继承）② PDF 完整条目提取 `_extract_pdf_items`（ID 型仅取需求条目，章节型标题截断防泄漏）③ 引用匹配 `_match_ref_to_item`（精确→子串→章节号前缀→模糊，4 级回退）④ Union Coloring `_compute_union_coloring`（GREEN>BLUE>BLACK）⑤ `generate_forward_excel`（每份用户文档一 sheet，上游合并+union 着色，下游按追踪关系独立着色，无追踪填 NA）。
+
+### 7.2 系统需求 → 系统设计（`generate_forward_sd_matrix.py`，新增）
+- `generate_forward_sd_matrix(reverse_path, sys_req_pdf_dir, forward_path, design_pdf_dir)`
+- 与 7.1 同构，方向相反：以**系统需求 PDF** 条目为基准（完整覆盖），将逆向矩阵（系统设计→系统需求）的行匹配回系统需求条目，计算 union 着色，下游（系统设计）按追踪关系独立着色，未追踪条目下游填 NA。
+- 设计文档名通过 `_infer_design_doc_name`（从条目 ID 前缀推断）填入 D 列。
+
+---
+
+## 8. 数据流管线
+
+```mermaid
+flowchart TD
+    A[PDF 文档] --> B[pdf_parser.extract_full_text]
+    A --> C[pdf_parser.find_traceability_table(_design)]
+    C --> D[parse_traceability_table(_design) → TraceRelation]
+    B --> E[requirement_extractor.build_content_map]
+    D --> F[build_backward_matrix(_from_design)]
+    E --> F
+    F --> G[TraceabilityMatrix]
+    G --> H[text_matcher.verify_matrix]
+    H --> I[match_text_pair 逐对]
+    I --> I1[ASCII 噪声清理 + pos_map]
+    I1 --> I2[分解微块 + 保存 _clean_start + 重映射]
+    I2 --> I3[短语提纯 → 嵌入编码]
+    I3 --> I4[匈牙利最优匹配]
+    I4 --> I5[_classify_block 双向分类]
+    I5 --> I6[子短语 GREEN 扫描]
+    I6 --> I7[双向一致性校验]
+    I7 --> I8[对称着色 + 着色重建 TextRun]
+    I8 --> J[match_result 写入每行]
+    J --> K[excel_generator.generate_excel → 逆向矩阵.xlsx]
+    K --> L[generate_forward_matrix / _sd_matrix → 正向矩阵.xlsx]
 ```
 
 ---
 
-## 6. 启动方式
+## 9. 运行与入口
 
-### 6.1 Streamlit Web界面（推荐）
+### 9.1 Streamlit Web 界面（推荐）
 ```bash
 cd E:\Trace_NL
-streamlit run app.py
-# 浏览器自动打开 http://localhost:8501
+streamlit run app.py   # http://localhost:8501
 ```
-操作流程：侧边栏配置目录 → 扫描文档 → 选择操作（逆向矩阵/正向矩阵/追踪验证/一键全流程）→ 预览结果 → 下载Excel
+侧边栏配置目录 → 扫描文档 → 选择操作（逆向矩阵 / 正向矩阵 / 追踪验证 / 一键全流程）→ 预览（带色 HTML 表）→ 下载 Excel。
 
-### 6.2 命令行端到端测试
+### 9.2 命令行端到端测试
 ```bash
-cd E:\Trace_NL
-python run_e2e_test.py
-# 输出: output/追踪验证结果_v5.xlsx + output/正向追踪矩阵.xlsx
+python run_e2e_test.py          # 流水线 A：系统需求→用户需求
+python run_e2e_sd_test.py       # 流水线 B：系统设计→系统需求（新增）
 ```
+分别输出 `output/追踪验证结果_v5.xlsx` + `正向追踪矩阵.xlsx`，以及 `追踪验证结果_系统设计.xlsx` + `正向追踪矩阵_系统设计.xlsx`；`run_e2e_test.py` 额外对比 `基准数据/Trace_Base.xlsx`。
 
-### 6.3 独立生成正向追踪矩阵
+### 9.3 对比分析工具
 ```bash
-cd E:\Trace_NL
-python generate_forward_matrix.py
-# 从已有逆向矩阵Excel生成正向矩阵，输出: output/正向追踪矩阵.xlsx
-```
-
-### 6.4 基线对比分析
-```bash
-cd E:\Trace_NL
-python compare_detail.py       # 逐单元格逐run对比 → compare_detail.txt
-python compare_row_detail.py   # 逐追踪关系对比 → 逐行精细对比报告.txt
+python compare_detail.py        # 逐单元格逐 run 对比 → compare_detail.txt
+python compare_row_detail.py    # 逐追踪关系对比 → 逐行精细对比报告.txt
 ```
 
 ---
 
-## 7. 依赖与环境
-
-**Python版本：** 3.10+
-
-**核心依赖：**
-- streamlit >= 1.30.0（Web界面）
-- torch（推理框架）
-- transformers（模型加载）
-- pdfplumber（表格提取）
-- PyMuPDF / fitz（正文提取）
-- openpyxl（Excel生成，需支持CellRichText）
-- scipy（匈牙利算法 `linear_sum_assignment`）
-- pandas, numpy, scikit-learn
-
-**模型权重：** 内嵌在 `model/` 目录，无需联网下载。
-**sentence_transformers库：** 内嵌在 `model/sentence_transformers/`，但当前代码实际使用 `transformers.AutoModel` 直接加载，不依赖此库。
-
+## 10. 依赖与环境
+- **Python**：3.10+
+- **核心依赖**：streamlit、torch、transformers、pdfplumber、PyMuPDF(fitz)、openpyxl（需支持 CellRichText）、scipy（匈牙利算法）、pandas、numpy、scikit-learn。
+- **模型权重**：内嵌 `model/`，无需联网。
 
 ---
 
-## 8. 当前算法状态与优化方向
+## 11. 算法状态与优化方向
 
-### 8.1 已实施的优化（6项）
+### 11.1 已实施优化
+1. 子短语 GREEN 扫描（BLACK 块内查完全一致子串标绿）。
+2. PDF ASCII 图表噪声清除。
+3. 匈牙利最优匹配（替代贪心，避免多对一冲突）。
+4. 短语提纯（去编号前缀 + 功能后缀）。
+5. 字符归一化（`l/1`、`O/0` 上下文感知）。
+6. 双向一致性校验 + **Stage 6 对称着色**（TextRun 级）。
 
-1. **子短语GREEN扫描：** 在BLACK微块内部查找完全一致的子串（≥8字符）标为GREEN，解决"欠GREEN"问题
-2. **PDF ASCII噪声清除：** 自动检测并移除连续短ASCII行（图表噪声），避免干扰匹配
-3. **匈牙利最优匹配：** 替代argmax贪心，避免多对一匹配冲突，提升匹配质量
-4. **短语提纯：** 去编号前缀和功能后缀，提升嵌入编码质量
-5. **字符归一化（l/1, O/0）：** 上下文感知的PDF字符混淆归一化
-6. **双向一致性校验：** 确保上下游标色逻辑一致（块级）
+### 11.2 历史性能参考（流水线 A，v5 第二轮优化）
+基于 16 条追踪关系的 E2E 测试：GREEN 15/16 (94%)、BLUE 0/16 (0%)、BLACK 1/16 (6%)。
+> [!note] 流水线 B（系统设计→系统需求）为新增，性能基线以 `run_e2e_sd_test.py` 实时统计为准。
 
-### 8.2 当前性能（v5 第二轮优化后）
-基于16条追踪关系的E2E测试：
-- **GREEN(完全一致): 15/16 (94%)**
-- **BLUE(语义匹配): 0/16 (0%)**
-- **BLACK(未匹配): 1/16 (6%)**
-- 子短语GREEN对称性问题已大幅改善
-- 合并单元格 Union 着色已实现
+### 11.3 已知问题与残留风险
+1. **`_cross_mark_subphrase_green` 为未接入的死代码**：该函数虽已定义（Solution 1b 交叉标记），但 `match_text_pair` 中并未调用；其依赖的辅助函数 `_build_norm_to_orig_map` 在全代码库中**未定义**，若被调用将触发 `NameError`。当前对称性由 Stage 6 `_symmetrize_text_runs` 实现，此函数应视为遗留/未完成片段。
+2. **正向矩阵部分标题仍有正文泄漏**：章节标题截断策略在个别情形下未能完全阻断。
+3. 个别 BLACK 残留为结构保留导致的轻微回归。
+4. 旧文档中"`_build_norm_to_orig_map` 需重写"的待办已被实际调用引用，但实现缺失（同第 1 点）。
 
-### 8.3 第二轮优化已修复问题
-
-已修复5类问题，涉及 cross-document fallback、short text GREEN、sub-phrase symmetry、merged cell coloring、section extraction 等，详见验证评估笔记。
-
-### 8.4 已知残留问题
-1. 1/16 BLACK（seq=9）：结构保留改善导致的轻微回归
-2. _build_norm_to_orig_map 仍需完整重写
-3. 正向矩阵部分标题仍有正文泄漏
-
-### 8.4 潜在优化方向
-
-1. **NLI批处理优化：** 当前 `verify_matrix` 逐行逐块调用 `predict_batch([(text_a, text_b)])`，每次只传一对。可以收集所有需要NLI推理的文本对后统一批处理，减少GPU kernel launch开销，预期提速2-3倍。
-
-2. **双向子短语同步（待重新设计）：** 需要一种不会导致内容缺失的机制来同步两侧的子短语GREEN标记。可能的方向：在 `_ensure_bidirectional_consistency` 中同步children，但需要仔细处理坐标映射和去重。
-
-3. **PDF解析增强：** 修复已知的内容提取差异，可能需要针对特定PDF格式做特殊处理。
-
+### 11.4 潜在优化方向
+1. **NLI 批处理**：当前 `verify_matrix` 逐块调用 `predict_batch([(a,b)])`，每对一次 kernel launch；可收集所有需 NLI 的文本对统一批处理，预期提速 2–3 倍。
+2. **双向子短语同步机制重设计**：在 `_ensure_bidirectional_consistency` 中同步 children（需谨慎处理坐标映射与去重，避免内容缺失）。
+3. **PDF 解析增强**：修复已知内容提取差异，针对特定 PDF 格式做特殊处理。
+4. **清理死代码**：移除或补全 `_cross_mark_subphrase_green` 及 `_build_norm_to_orig_map`，消除潜在 `NameError` 隐患。
 
 ---
 
-## 9. 关键设计决策记录
+## 12. 关键设计决策记录
 
 | 决策 | 选择 | 理由 |
 |---|---|---|
 | 嵌入模型 | bge-small-zh (24M) | 轻量、中文优化好、推理快 |
-| NLI模型 | Erlangshen-Roberta-110M | 中文NLI效果好、110M参数在CPU上可接受 |
-| 模型加载方式 | transformers AutoModel直接加载 | 避免sentence-transformers版本兼容问题 |
-| 表格提取 | pdfplumber（仅最后8页） | 追踪矩阵附录固定在文档末尾 |
+| NLI 模型 | Erlangshen-Roberta-110M | 中文 NLI 效果好、110M 在 CPU 可接受 |
+| 模型加载 | transformers AutoModel 直载 | 规避 sentence-transformers 版本兼容 |
+| 表格提取 | pdfplumber（仅最后 8 页） | 附录固定在文档末尾 |
 | 正文提取 | PyMuPDF | 段落结构好、速度快 |
-| Excel着色 | CellRichText + InlineFont | 实现微块级细粒度着色，每个TextRun独立颜色 |
-| 匹配粒度 | 短语级微块 | 在匹配精度和计算开销之间取平衡 |
-| 分类策略 | 严格无兜底 + 多级BLUE回退 | 消除旧版BLUE过度标记，同时通过2c/2d回退捕获分解粒度差异 |
-| GREEN双路径 | bigram + char_set+LCS | 兼顾严格匹配和后缀容忍 |
-| 归一化GREEN回退 | 归一化后完全一致→GREEN | 处理嵌入模型对"功能"等后缀差异过度敏感 |
-| 最优匹配 | 匈牙利算法 | 替代贪心，避免多对一冲突 |
-| 短语提纯 | 去编号前缀+功能后缀 | 提升嵌入编码质量，使匹配更聚焦核心语义 |
-| 双向独立匹配 | 下游→上游 和 上游→下游 结果独立 | C列和F列各自着色，不互相干扰 |
-| 子短语GREEN坐标 | _clean_start + pos_map转换 | 修复ASCII噪声清理后cleaned-text坐标与原文坐标不一致的问题 |
-| PDF字符归一化 | 上下文感知 l→1, O→0 | 处理PDF中常见的字符混淆 |
-| 子短语GREEN最小长度 | 8字符 | 避免"个保护组"等短片段误匹配 |
-| 正向矩阵数据源 | 逆向矩阵XML + 用户需求PDF | 不重新执行匹配算法，复用已着色数据；PDF提取保证完整条目覆盖 |
-| 正向矩阵着色 | Union Coloring（GREEN>BLUE>BLACK） | 同一用户需求对应多条系统需求时，每字符取最高优先级颜色，直观体现需求覆盖完成度 |
-| ID型文档条目提取 | 仅取需求条目，不取章节 | 避免ID型文档中条目与章节重复（如<RPS-SYS-RQ-001>与"1概述"指向同一内容） |
-| 章节标题截断 | 20字符上限 | 防止PDF正文内容泄漏到章节标题（如"3.2.1系统和设备分级应进行分类..."） |
-| 子串匹配过滤 | 跳过纯章节号键 | 防止短章节号（如"3.2.2"）通过子串匹配抢走子节（如"3.2.2.2F-SC-2级要求"）的匹配 |
-| 正向矩阵列结构 | 6列（移除追踪匹配说明） | 后续需人工审核，自动化标色说明列暂不生成 |
-| 未追踪条目处理 | 下游填NA | 无追踪关系的用户需求条目，下游文档/条目号/内容统一填"NA"，匹配说明列移除 |
+| Excel 着色 | CellRichText + InlineFont | 微块级细粒度着色 |
+| 匹配粒度 | 短语级微块 | 精度与开销平衡 |
+| 分类策略 | 严格无兜底 + 多级 BLUE 回退 | 消除旧版过度标 BLUE |
+| GREEN 双路径 | bigram + char_set+LCS | 兼顾严格与后缀容忍 |
+| 最优匹配 | 匈牙利算法 | 避免多对一冲突 |
+| 短语提纯 | 去编号前缀 + 功能后缀 | 聚焦核心语义 |
+| 双向独立匹配 | 下游→上游 / 上游→下游 独立 | C/F 列互不干扰 |
+| 子短语 GREEN 坐标 | `_clean_start` + `pos_map` | 修复噪声清理后坐标不一致 |
+| PDF 字符归一化 | 上下文感知 `l→1`/`O→0` | 处理 PDF 字符混淆 |
+| 子短语最小长度 | **4 字符**（代码实际） | 比对更敏感；旧文档 8 已过时 |
+| 正向矩阵数据源 | 逆向矩阵 XML + 上游 PDF | 复用着色 + 保证完整条目覆盖 |
+| 正向 Union 着色 | GREEN>BLUE>BLACK | 体现需求覆盖完成度 |
+| ID 型条目提取 | 仅取需求条目 | 避免条目与章节重复 |
+| 跨文档回退 | 已取消 | 防串稿 |
+| 对称着色 | Stage 6 `_symmetrize_text_runs` | 替代未实现的子短语交叉标记 |
+
+---
+
+## 13. 相关笔记与文件
+- [[REASONIX]] — 重构/问题追踪笔记（含 `_build_norm_to_orig_map` 待办）
+- [[SKILLS_GUIDE]] — 技能使用指南
+- 验证评估/ — 问题清单与对比报告
+- 基准数据/Trace_Base.xlsx — 人工标注基准
