@@ -1,4 +1,5 @@
-﻿"""
+from __future__ import annotations
+"""
 格式化Excel生成模块
 - 逆向追踪矩阵Sheet (6列)
 - 正向追踪矩阵Sheet (7列)
@@ -102,13 +103,30 @@ def generate_excel(
         matrix: 追踪矩阵数据
         output_path: 输出文件路径
         include_forward: 是否包含正向矩阵sheet
+
+    问题2优化: 逆向追踪矩阵按下游文档(downstream_doc)拆分到不同sheet页,
+    不同系统设计文档的追踪关系数据不再混在同一sheet中。
     """
     wb = Workbook()
 
-    # Sheet 1: 逆向追踪矩阵
-    ws1 = wb.active
-    ws1.title = '逆向追踪矩阵'
-    _write_backward_sheet(ws1, matrix)
+    # 按下游文档分组(问题2)
+    from collections import defaultdict
+    doc_groups: dict[str, list[int]] = defaultdict(list)
+    for i, row in enumerate(matrix.rows):
+        key = row.downstream_doc or '逆向追踪矩阵'
+        doc_groups[key].append(i)
+
+    is_multi = len(doc_groups) > 1
+    first = True
+    for doc_name, indices in doc_groups.items():
+        if first:
+            ws = wb.active
+            first = False
+        else:
+            ws = wb.create_sheet()
+        # 多文档时分sheet, 单文档时保持原sheet名 '逆向追踪矩阵'
+        ws.title = _safe_sheet_name(doc_name) if is_multi else '逆向追踪矩阵'
+        _write_backward_sheet(ws, matrix, indices)
 
     # 正向追踪矩阵已移至独立Excel文件 (generate_forward_matrix.py)
     # 逆向矩阵Excel仅包含逆向追踪矩阵sheet
@@ -117,6 +135,18 @@ def generate_excel(
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     wb.save(output_path)
 
+
+def _safe_sheet_name(name: str) -> str:
+    """生成合法的Excel sheet名(≤31字符, 去除非法字符)"""
+    illegal = [':', '\\', '/', '?', '*', '[', ']']
+    for ch in illegal:
+        name = name.replace(ch, '')
+    name = name.strip()
+    if not name:
+        name = '逆向追踪矩阵'
+    if len(name) > 31:
+        name = name[:31]
+    return name
 
 
 def _union_text_runs(all_runs_list, full_text):
@@ -151,17 +181,35 @@ def _union_text_runs(all_runs_list, full_text):
         runs.append(TextRun(text="".join(cur_text), category=cur_cat))
     return runs
 
-def _write_backward_sheet(ws, matrix: TraceabilityMatrix):
-    """写入逆向追踪矩阵Sheet"""
-    # 表头
-    headers = ['序号', '下游条目号', '下游内容', '上游文档', '上游条目号/章节', '上游内容']
-    widths = [6, 22, 55, 20, 22, 60]
+def _write_backward_sheet(ws, matrix: TraceabilityMatrix, row_indices: list[int] = None):
+    """
+    写入逆向追踪矩阵Sheet
+
+    Args:
+        row_indices: 本sheet要写入的全局行索引列表(按文档分组后)。
+                     为None时写入全部行(保持兼容)。
+    """
+    if row_indices is None:
+        row_indices = list(range(len(matrix.rows)))
+
+    # 表头（第7列 下游文档 = 实际来源文档名, 供正向矩阵识别来源）
+    headers = ['序号', '下游条目号', '下游内容', '上游文档', '上游条目号/章节', '上游内容', '下游文档']
+    widths = [6, 22, 55, 20, 22, 60, 20]
     _write_header_row(ws, headers, widths)
 
+    # 全局索引 -> 本sheet局部Excel行号(2-based) 的映射
+    local_row = {}
+    for local, global_i in enumerate(row_indices):
+        local_row[global_i] = local + 2
+
     # 预处理: 对合并组的下游内容计算Union着色(GREEN>BLUE>BLACK)
+    # 仅处理属于本sheet的合并组
     _backward_union_ds = {}
     for seq, indices in matrix.backward_merge_groups.items():
         if len(indices) < 2:
+            continue
+        # 合并组必须完整属于本sheet
+        if not all(idx in local_row for idx in indices):
             continue
         all_ds_runs = []
         for idx in indices:
@@ -173,11 +221,12 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix):
             _backward_union_ds[indices[0]] = union
 
     # 数据行
-    for i, row in enumerate(matrix.rows):
-        r = i + 2  # Excel行号(1-based, 跳过表头)
+    for local_i, global_i in enumerate(row_indices):
+        row = matrix.rows[global_i]
+        r = local_row[global_i]  # Excel行号
 
-        # 序号
-        _set_cell(ws, r, 1, row.seq_number,
+        # 序号(按sheet本地重新编号, 问题2)
+        _set_cell(ws, r, 1, local_i + 1,
                   Font(name=FONT_NAME, size=ID_FONT_SIZE))
 
         # 下游条目号
@@ -186,8 +235,8 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix):
 
         # 下游内容(RichText着色)
         # 合并组首行使用Union着色(合并所有子行的下游匹配结果)
-        if i in _backward_union_ds:
-            rich = _make_rich_text(_backward_union_ds[i], row.downstream_content)
+        if global_i in _backward_union_ds:
+            rich = _make_rich_text(_backward_union_ds[global_i], row.downstream_content)
             ws.cell(row=r, column=3, value=rich)
             ws.cell(row=r, column=3).alignment = _DATA_ALIGNMENT
             ws.cell(row=r, column=3).border = _THIN_BORDER
@@ -218,12 +267,18 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix):
             _set_cell(ws, r, 6, row.upstream_content,
                       Font(name=FONT_NAME, size=CONTENT_FONT_SIZE))
 
-    # 合并单元格(一对多关系)
+        # 下游文档（实际来源文档名, 供正向矩阵识别来源, 避免按条目号前缀猜测）
+        _set_cell(ws, r, 7, row.downstream_doc,
+                  Font(name=FONT_NAME, size=ID_FONT_SIZE))
+
+    # 合并单元格(一对多关系) —— 仅合并本sheet内完整属于该组的行
     for seq, indices in matrix.backward_merge_groups.items():
         if len(indices) < 2:
             continue
-        first_row = indices[0] + 2  # Excel行号
-        last_row = indices[-1] + 2
+        if not all(idx in local_row for idx in indices):
+            continue
+        first_row = local_row[indices[0]]
+        last_row = local_row[indices[-1]]
         for col in [1, 2, 3]:  # 序号、下游条目号、下游内容
             ws.merge_cells(
                 start_row=first_row, start_column=col,
@@ -321,3 +376,12 @@ def _category_to_description(category: MatchCategory) -> str:
         return '部分匹配'
     else:
         return '不一致'
+
+
+# ============================================================
+# 导出入口
+# ============================================================
+
+if __name__ == "__main__":
+    pass
+

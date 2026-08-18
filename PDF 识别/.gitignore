@@ -1,0 +1,21 @@
+# 依赖与虚拟环境
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# 测试缓存
+.pytest_cache/
+.coverage
+
+# 运行产物（可通过 tools/batch_parse.py 重新生成）
+output/
+complex_pdfs/**/assets/
+
+# 工具元数据（WorkBuddy 内部记录，非项目代码）
+.workbuddy/
+
+# 系统文件
+.DS_Store
+
+samples/assets/

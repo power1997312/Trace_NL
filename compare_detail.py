@@ -1,4 +1,5 @@
-﻿"""
+from __future__ import annotations
+"""
 精细对比: 验证结果 vs 更新后基准 — 逐单元格逐run详细分析
 输出到 compare_detail.txt
 """

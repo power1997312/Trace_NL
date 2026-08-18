@@ -4,6 +4,7 @@
 从多份系统设计PDF的附录追踪关系表构建逆向追踪矩阵（系统设计→系统需求），
 执行微块级文本匹配验证，生成逆向和正向追踪矩阵Excel。
 """
+from __future__ import annotations
 import os
 import sys
 import time
@@ -13,7 +14,7 @@ warnings.filterwarnings('ignore')
 # 确保项目根目录在路径中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import PROJECT_ROOT, OUTPUT_DIR, MatchCategory
+from config import PROJECT_ROOT, OUTPUT_DIR, make_output_path, MatchCategory
 from config import SYSTEM_DESIGN_DIR, SYSTEM_REQUIREMENT_DIR
 from core.traceability_matrix import build_backward_matrix_from_design
 from core.text_matcher import verify_matrix
@@ -105,13 +106,13 @@ def main():
 
     # === 4. 生成逆向追踪矩阵Excel ===
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, "追踪验证结果_系统设计.xlsx")
+    output_path = make_output_path("追踪验证结果_系统设计.xlsx")
     print(f"\n>>> 生成逆向追踪矩阵Excel: {output_path}")
     generate_excel(matrix, output_path, include_forward=False)
     print(f"    完成!")
 
     # === 5. 生成正向追踪矩阵Excel（系统需求→系统设计） ===
-    forward_output = os.path.join(OUTPUT_DIR, "正向追踪矩阵_系统设计.xlsx")
+    forward_output = make_output_path("正向追踪矩阵_系统设计.xlsx")
     print(f"\n>>> 生成正向追踪矩阵Excel（系统需求→系统设计）: {forward_output}")
     try:
         from generate_forward_sd_matrix import generate_forward_sd_matrix

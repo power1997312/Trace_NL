@@ -1,4 +1,5 @@
-﻿"""
+from __future__ import annotations
+"""
 微块级文本匹配引擎
 - 三级微块分解: 段落 → 句子 → 短语
 - 两阶段匹配: 嵌入相似度粗筛 + 字符级精确验证 / NLI语义验证
@@ -400,58 +401,120 @@ def _purify_phrase(text: str) -> str:
 # 字符级相似度
 # ============================================================
 
+# Unicode罗马数字→ASCII 映射表(模块级常量, 避免每次归一化都重建字典)
+_ROMAN_ALL = {
+    'Ⅰ': 'I', 'Ⅱ': 'II', 'Ⅲ': 'III', 'Ⅳ': 'IV', 'Ⅴ': 'V', 'Ⅵ': 'VI',
+    'Ⅶ': 'VII', 'Ⅷ': 'VIII', 'Ⅸ': 'IX', 'Ⅹ': 'X', 'Ⅺ': 'XI', 'Ⅻ': 'XII',
+    'ⅰ': 'i', 'ⅱ': 'ii', 'ⅲ': 'iii', 'ⅳ': 'iv', 'ⅴ': 'v', 'ⅵ': 'vi',
+    'ⅶ': 'vii', 'ⅷ': 'viii', 'ⅸ': 'ix', 'ⅹ': 'x', 'ⅺ': 'xi', 'ⅻ': 'xii',
+}
+# 全角→半角 + 罗马数字, 合并为一次 str.translate(比逐个 replace 快得多)
+_TRANSLATE_MAP = str.maketrans({
+    '（': '(', '）': ')', '：': ':', '，': ',', '；': ';',
+    '！': '!', '？': '?', '、': ',',
+    **_ROMAN_ALL,
+})
+
+# 归一化用正则(预编译, 避免每次调用重新解析)
+_RE_PUA = re.compile(r'[\uf000-\uf8ff]')
+_RE_BULLET = re.compile(r'(?m)^[\s]*[-•●·]\s*')
+_RE_NUM_PREFIX = re.compile(r'(?m)^\s*(?:\d+[)）]|[a-zA-Z][)）])')
+_RE_WS = re.compile(r'\s+')
+_RE_TAIL_PUNCT = re.compile(r'[；;。，,：:!\?]+$')
+_RE_FUNC_SUFFIX = re.compile(r'(?:功能|系统|模块|装置|单元|组件)$')
+_RE_L_TO_1_A = re.compile(r'(?<=[A-Z])l(?=[A-Z\d])')
+_RE_L_TO_1_B = re.compile(r'(?<=[A-Z])l$')
+_RE_L_TO_1_C = re.compile(r'(?<=\d)l(?=[A-Z])')
+_RE_O_TO_0_A = re.compile(r'(?<=\d)O(?=\d)')
+_RE_O_TO_0_B = re.compile(r'(?<=\d)o(?=\d)')
+
+# 归一化结果缓存。同一段文本会被 LCS/Jaccard/子串扫描等反复归一化,
+# 而归一化本身是纯函数, 缓存后重复调用直接返回。
+_NORM_CACHE_MAX = 100000
+_norm_cache: dict[str, str] = {}
+
+
 def _normalize_for_char_compare(text: str) -> str:
-    """归一化文本用于字符级比较"""
+    """归一化文本用于字符级比较(纯函数, 结果带缓存)"""
+    cached = _norm_cache.get(text)
+    if cached is not None:
+        return cached
+
     t = text.strip()
-    # 全角→半角
-    t = t.replace('（', '(').replace('）', ')').replace('：', ':')
-    t = t.replace('，', ',').replace('；', ';').replace('！', '!').replace('？', '?')
-    t = t.replace('、', ',')
+    # 全角→半角 + Unicode罗马数字→ASCII (Ⅰ→I, Ⅱ→II, Ⅲ→III, Ⅳ→IV 等)
+    t = t.translate(_TRANSLATE_MAP)
     # 去除PDF私有区字符(Wingdings bullet等，防御性清理)
-    t = re.sub(r'[\uf000-\uf8ff]', '', t)
+    t = _RE_PUA.sub('', t)
     # 去除列表标记和bullet符号
-    t = re.sub(r'(?m)^[\s]*[-•●·]\s*', '', t)
+    t = _RE_BULLET.sub('', t)
     # 去除数字/字母编号前缀 (如 "1)", "2）", "a)", "B）")
     # 使GREEN匹配对上下游编号差异免疫
-    t = re.sub(r'(?m)^\s*(?:\d+[)）]|[a-zA-Z][)）])', '', t)
+    t = _RE_NUM_PREFIX.sub('', t)
     # 去除空格和换行
-    t = re.sub(r'\s+', '', t)
+    t = _RE_WS.sub('', t)
     # 去除尾部标点(使后缀$匹配能生效)
-    t = re.sub(r'[；;。，,：:!\?]+$', '', t)
+    t = _RE_TAIL_PUNCT.sub('', t)
     # 去除功能类型词后缀 (使GREEN匹配对"功能"等后缀差异免疫)
-    t = re.sub(r'(?:功能|系统|模块|装置|单元|组件)$', '', t)
+    t = _RE_FUNC_SUFFIX.sub('', t)
 
     # PDF字符混淆归一化 (Solution 5)
     # 上下文感知替换: 仅在高置信度场景下应用
     # l→1: 全大写上下文 (如 "QAl" → "QA1", "QA2" 等质保等级编号)
-    t = re.sub(r'(?<=[A-Z])l(?=[A-Z\d])', '1', t)
-    t = re.sub(r'(?<=[A-Z])l$', '1', t)
-    t = re.sub(r'(?<=\d)l(?=[A-Z])', '1', t)
+    t = _RE_L_TO_1_A.sub('1', t)
+    t = _RE_L_TO_1_B.sub('1', t)
+    t = _RE_L_TO_1_C.sub('1', t)
     # O→0: 数字序列中 (如 "1O" → "10")
-    t = re.sub(r'(?<=\d)O(?=\d)', '0', t)
-    t = re.sub(r'(?<=\d)o(?=\d)', '0', t)
+    t = _RE_O_TO_0_A.sub('0', t)
+    t = _RE_O_TO_0_B.sub('0', t)
 
+    if len(_norm_cache) < _NORM_CACHE_MAX:
+        _norm_cache[text] = t
     return t
+
+
+# 字符级相似度的结果缓存。
+# 三个指标都是对称的(交并集/LCS 与参数顺序无关), 故用有序对做键, 命中率翻倍。
+_SIM_CACHE_MAX = 200000
+_bigram_cache: dict[tuple[str, str], float] = {}
+_charset_cache: dict[tuple[str, str], float] = {}
+_lcs_cache: dict[tuple[str, str], float] = {}
+
+
+def clear_matcher_cache() -> None:
+    """清空文本匹配相关的纯函数缓存"""
+    _norm_cache.clear()
+    _bigram_cache.clear()
+    _charset_cache.clear()
+    _lcs_cache.clear()
 
 
 def _char_bigram_jaccard(text_a: str, text_b: str) -> float:
     """计算字符bigram的Jaccard系数"""
+    key = (text_a, text_b) if text_a <= text_b else (text_b, text_a)
+    hit = _bigram_cache.get(key)
+    if hit is not None:
+        return hit
+
     a = _normalize_for_char_compare(text_a)
     b = _normalize_for_char_compare(text_b)
 
     if not a or not b:
-        return 0.0
-    if a == b:
-        return 1.0
+        val = 0.0
+    elif a == b:
+        val = 1.0
+    else:
+        # 生成bigram集合
+        set_a = set(a[i:i+2] for i in range(len(a) - 1)) if len(a) > 1 else {a}
+        set_b = set(b[i:i+2] for i in range(len(b) - 1)) if len(b) > 1 else {b}
 
-    # 生成bigram集合
-    set_a = set(a[i:i+2] for i in range(len(a) - 1)) if len(a) > 1 else {a}
-    set_b = set(b[i:i+2] for i in range(len(b) - 1)) if len(b) > 1 else {b}
+        intersection = len(set_a & set_b)
+        union = len(set_a | set_b)
 
-    intersection = len(set_a & set_b)
-    union = len(set_a | set_b)
+        val = intersection / union if union > 0 else 0.0
 
-    return intersection / union if union > 0 else 0.0
+    if len(_bigram_cache) < _SIM_CACHE_MAX:
+        _bigram_cache[key] = val
+    return val
 
 
 def _char_set_jaccard(text_a: str, text_b: str) -> float:
@@ -459,21 +522,30 @@ def _char_set_jaccard(text_a: str, text_b: str) -> float:
     计算字符集合(去重)的Jaccard系数
     比bigram Jaccard更容忍后缀差异，用于GREEN精确匹配
     """
+    key = (text_a, text_b) if text_a <= text_b else (text_b, text_a)
+    hit = _charset_cache.get(key)
+    if hit is not None:
+        return hit
+
     a = _normalize_for_char_compare(text_a)
     b = _normalize_for_char_compare(text_b)
 
     if not a or not b:
-        return 0.0
-    if a == b:
-        return 1.0
+        val = 0.0
+    elif a == b:
+        val = 1.0
+    else:
+        set_a = set(a)
+        set_b = set(b)
 
-    set_a = set(a)
-    set_b = set(b)
+        intersection = len(set_a & set_b)
+        union = len(set_a | set_b)
 
-    intersection = len(set_a & set_b)
-    union = len(set_a | set_b)
+        val = intersection / union if union > 0 else 0.0
 
-    return intersection / union if union > 0 else 0.0
+    if len(_charset_cache) < _SIM_CACHE_MAX:
+        _charset_cache[key] = val
+    return val
 
 
 def _lcs_ratio(text_a: str, text_b: str) -> float:
@@ -482,6 +554,18 @@ def _lcs_ratio(text_a: str, text_b: str) -> float:
     LCS比率 = |LCS(a,b)| / max(|a|, |b|)
     衡量两段文本的序列重叠度，对插入/删除更鲁棒
     """
+    key = (text_a, text_b) if text_a <= text_b else (text_b, text_a)
+    hit = _lcs_cache.get(key)
+    if hit is not None:
+        return hit
+
+    val = _lcs_ratio_uncached(text_a, text_b)
+    if len(_lcs_cache) < _SIM_CACHE_MAX:
+        _lcs_cache[key] = val
+    return val
+
+
+def _lcs_ratio_uncached(text_a: str, text_b: str) -> float:
     a = _normalize_for_char_compare(text_a)
     b = _normalize_for_char_compare(text_b)
 
@@ -502,12 +586,18 @@ def _lcs_ratio(text_a: str, text_b: str) -> float:
     curr = [0] * (n + 1)
 
     for i in range(1, m + 1):
+        ai = a[i - 1]
+        prev_row = prev
+        # 逐列递推; 局部变量缓存上一格的值, 省去重复索引
+        left = 0
         for j in range(1, n + 1):
-            if a[i - 1] == b[j - 1]:
-                curr[j] = prev[j - 1] + 1
+            if ai == b[j - 1]:
+                left = prev_row[j - 1] + 1
             else:
-                curr[j] = max(prev[j], curr[j - 1])
-        prev, curr = curr, [0] * (n + 1)
+                up = prev_row[j]
+                left = up if up > left else left
+            curr[j] = left
+        prev, curr = curr, prev
 
     lcs_len = prev[n]
     return lcs_len / max(m, n)
@@ -811,6 +901,13 @@ def match_text_pair(
     # Stage 2: 最优匹配 (Solution 3 - 匈牙利算法替代argmax贪心)
     ds_matches, up_matches = _optimal_matching(sim_matrix)
 
+    # Stage 2.5: 预热NLI缓存
+    # _classify_block 内部对每个块单独调一次 NLI, 逐条前向传播极慢。
+    # 这里先把两个方向上所有可能走到 NLI 的文本对收集起来做一次批量推理,
+    # 结果进入 NLI 缓存; 随后 _classify_block 的单条调用全部命中缓存。
+    # 判定逻辑与取值完全不变, 只是把多次小前向合并成一次大前向。
+    _prefetch_nli(ds_blocks, up_blocks, sim_matrix, ds_matches, up_matches, predict_batch)
+
     # Stage 3: 分类判定
     # 下游→上游匹配
     for i, ds_block in enumerate(ds_blocks):
@@ -835,7 +932,7 @@ def match_text_pair(
     _apply_subphrase_green(up_blocks, ds_blocks, sim_matrix.T, up_pos_map)
 
     # Stage 5: 双向标色一致性校验 (Solution 6)
-    _ensure_bidirectional_consistency(ds_blocks, up_blocks, sim_matrix)
+    _ensure_bidirectional_consistency(ds_blocks, up_blocks, sim_matrix, ds_matches, up_matches)
 
     # 构建TextRun列表(使用原文切片保真重建)
     ds_runs = _blocks_to_runs(ds_blocks, downstream_text)
@@ -935,6 +1032,10 @@ _MIN_GREEN_SUBSTR_LEN = 4
 _MAX_GREEN_SUBSTRS_PER_BLOCK = 3
 # 子短语GREEN扫描的最低块级嵌入相似度(低于此不扫描，避免跨语义上下文匹配)
 _MIN_BLOCK_SIM_FOR_SUBPHRASE = 0.45
+# 双向一致性中将块提升为GREEN所需的最低匹配相似度
+# 防止大块文本因小块精确匹配被整体标绿(问题3: 下游标绿但上游不存在)
+# 优化4: 从0.92降至0.85, 提升上下游着色一致性
+_GREEN_PROMOTE_SIM = 0.85
 
 
 def _apply_subphrase_green(
@@ -1223,44 +1324,98 @@ def _ensure_bidirectional_consistency(
     ds_blocks: list[MicroBlock],
     up_blocks: list[MicroBlock],
     sim_matrix: np.ndarray,
+    ds_matches: dict = None,
+    up_matches: dict = None,
 ) -> None:
     """
     确保双向标色一致性
 
     当下游块被标为GREEN/BLUE时，其对应的上游块不应为BLACK。
     反之亦然。取两者中较高的类别作为统一类别。
+
+    使用匈牙利匹配结果确定块对应关系(比argmax更准确)。
+    GREEN提升需高匹配置信度(_GREEN_PROMOTE_SIM), 避免假绿。
     """
     if not ds_blocks or not up_blocks:
         return
 
-    # 下游→上游一致性
+    def _promote(target: MicroBlock, source: MicroBlock, sim: float) -> None:
+        """将target提升到source的类别(仅当source优先级更高)"""
+        if source.category.priority <= target.category.priority:
+            return
+        # GREEN提升需高置信度, 避免假绿
+        if source.category == MatchCategory.GREEN and sim < _GREEN_PROMOTE_SIM:
+            return
+        target.category = source.category
+
+    # 下游→上游一致性 (使用匈牙利匹配结果)
     for i, ds_block in enumerate(ds_blocks):
         if ds_block.category == MatchCategory.BLACK:
             continue
         if i >= sim_matrix.shape[0]:
             continue
-        best_j = int(sim_matrix[i].argmax())
-        if sim_matrix[i][best_j] >= EMBEDDING_UNMATCHED_THRESHOLD:
-            up_block = up_blocks[best_j]
-            if up_block.category.priority < ds_block.category.priority:
-                # 子短语GREEN(含children)使用更低的相似度门槛
-                min_sim = _MIN_BLOCK_SIM_FOR_SUBPHRASE if ds_block.children else EMBEDDING_SEMANTIC_THRESHOLD
-                if sim_matrix[i][best_j] >= min_sim:
-                    up_block.category = ds_block.category
+        # 优先使用匈牙利匹配结果, 回退到argmax
+        if ds_matches and i in ds_matches:
+            best_j = ds_matches[i]
+        else:
+            best_j = int(sim_matrix[i].argmax())
+        if best_j < len(up_blocks) and sim_matrix[i][best_j] >= EMBEDDING_UNMATCHED_THRESHOLD:
+            _promote(up_blocks[best_j], ds_block, float(sim_matrix[i][best_j]))
 
-    # 上游→下游一致性
+    # 上游→下游一致性 (使用匈牙利匹配结果)
     for j, up_block in enumerate(up_blocks):
         if up_block.category == MatchCategory.BLACK:
             continue
         if j >= sim_matrix.shape[1]:
             continue
-        best_i = int(sim_matrix[:, j].argmax())
-        if sim_matrix[best_i][j] >= EMBEDDING_UNMATCHED_THRESHOLD:
-            ds_block = ds_blocks[best_i]
-            if ds_block.category.priority < up_block.category.priority:
-                min_sim = _MIN_BLOCK_SIM_FOR_SUBPHRASE if up_block.children else EMBEDDING_SEMANTIC_THRESHOLD
-                if sim_matrix[best_i][j] >= min_sim:
-                    ds_block.category = up_block.category
+        # 优先使用匈牙利匹配结果, 回退到argmax
+        if up_matches and j in up_matches:
+            best_i = up_matches[j]
+        else:
+            best_i = int(sim_matrix[:, j].argmax())
+        if best_i < len(ds_blocks) and sim_matrix[best_i][j] >= EMBEDDING_UNMATCHED_THRESHOLD:
+            _promote(ds_blocks[best_i], up_block, float(sim_matrix[best_i][j]))
+
+
+def _prefetch_nli(
+    ds_blocks: list[MicroBlock],
+    up_blocks: list[MicroBlock],
+    sim_matrix: np.ndarray,
+    ds_matches: dict,
+    up_matches: dict,
+    predict_batch_fn,
+) -> None:
+    """
+    把两个方向上所有可能触发 NLI 的文本对合并成一次批量推理, 预热结果缓存。
+
+    _classify_block 只在 embedding_sim >= EMBEDDING_SEMANTIC_THRESHOLD 时才会
+    调用 NLI, 因此这里按同一条件收集(取的是超集: 部分对可能提前返回 GREEN 而
+    用不到)。多算的部分只是进了缓存, 不参与任何判定, 结果与逐条调用完全一致。
+    """
+    if not ds_blocks or not up_blocks:
+        return
+
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _collect(text_a: str, text_b: str, sim: float) -> None:
+        if sim < EMBEDDING_SEMANTIC_THRESHOLD:
+            return
+        key = (text_a, text_b)
+        if key not in seen:
+            seen.add(key)
+            pairs.append(key)
+
+    for i, ds_block in enumerate(ds_blocks):
+        best_j = ds_matches.get(i, int(sim_matrix[i].argmax()))
+        _collect(ds_block.text, up_blocks[best_j].text, float(sim_matrix[i][best_j]))
+
+    for j, up_block in enumerate(up_blocks):
+        best_i = up_matches.get(j, int(sim_matrix[:, j].argmax()))
+        _collect(up_block.text, ds_blocks[best_i].text, float(sim_matrix[best_i][j]))
+
+    if pairs:
+        predict_batch_fn(pairs)
 
 
 def _classify_block(
@@ -1337,20 +1492,20 @@ def _classify_block(
         if contradiction_p >= 0.80:
             return MatchCategory.BLACK
 
-        # 高蕴含概率 → BLUE (降低char_set阈值到0.35以增加召回)
+        # 高蕴含概率 → BLUE
         if entailment_p >= NLI_ENTAILMENT_THRESHOLD:
             char_j = _char_set_jaccard(text_a, text_b)
-            if char_j >= 0.35:
+            if char_j >= 0.50:
                 return MatchCategory.BLUE
-            # 超高NLI蕴含(>=0.90) + 适度字符重叠(>=0.30) → 也标BLUE
+            # 超高NLI蕴含(>=0.90) + 适度字符重叠(>=0.50) → 也标BLUE
             # 处理因短语分解粒度差异导致的字符重叠偏低
-            if entailment_p >= 0.90 and char_j >= 0.30:
+            if entailment_p >= 0.90 and char_j >= 0.50:
                 return MatchCategory.BLUE
 
-        # 高NLI中立 + 高嵌入 → BLUE (降低char_set阈值到0.40)
+        # 高NLI中立 + 高嵌入 → BLUE
         if neutral_p >= 0.8 and embedding_sim >= NLI_NEUTRAL_EMBEDDING_THRESHOLD:
             char_j = _char_set_jaccard(text_a, text_b)
-            if char_j >= 0.40:
+            if char_j >= 0.50:
                 return MatchCategory.BLUE
 
         # NLI不确定但文本重叠显著 → 降级判定但不直接BLACK
@@ -1381,41 +1536,51 @@ def _classify_block(
 
 
 def _symmetrize_text_runs(target_runs, reference_runs):
+    """
+    对称化TextRun着色: 将reference_runs中的GREEN/BLUE子串同步到target_runs
+
+    优化4: 使用归一化匹配替代精确匹配, 处理全角/半角、空格、标点差异
+    优化5: 同时同步BLUE子串, 确保上下游语义匹配标色一致
+    """
     if not target_runs or not reference_runs:
         return
-    
-    green_texts = []
-    for run in reference_runs:
-        if run.category == MatchCategory.GREEN and run.text.strip():
-            t = run.text.strip()
-            if len(t) >= _MIN_GREEN_SUBSTR_LEN:
-                green_texts.append(t)
-    if not green_texts:
-        return
-    
-    new_runs = []
-    for run in target_runs:
-        if run.category != MatchCategory.BLACK or not run.text.strip():
-            new_runs.append(run)
-            continue
-        
-        text = run.text
-        if len(text) < _MIN_GREEN_SUBSTR_LEN:
-            new_runs.append(run)
-            continue
-        
-        # 在原始文本中直接查找GREEN子串
+
+    def _collect_texts(runs, category, min_len):
+        """收集指定类别的文本"""
+        texts = []
+        for run in runs:
+            if run.category == category and run.text.strip():
+                t = run.text.strip()
+                if len(t) >= min_len:
+                    texts.append(t)
+        return texts
+
+    def _find_matches(text, ref_texts, ref_norms, min_len):
+        """在text中查找ref_texts的子串匹配"""
         matches = []
-        for gt in green_texts:
-            pos = text.find(gt)
+        # 策略1: 精确子串匹配
+        for rt in ref_texts:
+            pos = text.find(rt)
             while pos >= 0:
-                matches.append((pos, pos + len(gt)))
-                pos = text.find(gt, pos + 1)
-        
-        if not matches:
-            new_runs.append(run)
-            continue
-        
+                matches.append((pos, pos + len(rt)))
+                pos = text.find(rt, pos + 1)
+        # 策略2: 归一化匹配
+        if not matches and ref_norms:
+            text_norm = _normalize_for_char_compare(text)
+            if len(text_norm) >= min_len:
+                for rt_orig, rt_norm in ref_norms:
+                    pos = text_norm.find(rt_norm)
+                    while pos >= 0:
+                        ratio = len(text) / max(len(text_norm), 1)
+                        orig_start = int(pos * ratio)
+                        orig_end = min(int((pos + len(rt_norm)) * ratio), len(text))
+                        if orig_end > orig_start:
+                            matches.append((orig_start, orig_end))
+                        pos = text_norm.find(rt_norm, pos + 1)
+        return matches
+
+    def _apply_matches(text, matches, category):
+        """将匹配区域标记为指定类别"""
         matches.sort()
         selected = []
         last_end = 0
@@ -1423,20 +1588,61 @@ def _symmetrize_text_runs(target_runs, reference_runs):
             if s >= last_end:
                 selected.append((s, e))
                 last_end = e
-        
         if not selected:
-            new_runs.append(run)
-            continue
-        
+            return [TextRun(text=text, category=MatchCategory.BLACK)]
+        result = []
         cursor = 0
         for s, e in selected:
             if s > cursor:
-                new_runs.append(TextRun(text=text[cursor:s], category=MatchCategory.BLACK))
-            new_runs.append(TextRun(text=text[s:e], category=MatchCategory.GREEN))
+                result.append(TextRun(text=text[cursor:s], category=MatchCategory.BLACK))
+            result.append(TextRun(text=text[s:e], category=category))
             cursor = e
         if cursor < len(text):
-            new_runs.append(TextRun(text=text[cursor:], category=MatchCategory.BLACK))
-    
+            result.append(TextRun(text=text[cursor:], category=MatchCategory.BLACK))
+        return result
+
+    # === 同步GREEN ===
+    green_texts = _collect_texts(reference_runs, MatchCategory.GREEN, _MIN_GREEN_SUBSTR_LEN)
+    green_norms = [(gt, _normalize_for_char_compare(gt)) for gt in green_texts
+                   if len(_normalize_for_char_compare(gt)) >= _MIN_GREEN_SUBSTR_LEN]
+
+    new_runs = []
+    for run in target_runs:
+        if run.category != MatchCategory.BLACK or not run.text.strip():
+            new_runs.append(run)
+            continue
+        text = run.text
+        if len(text) < _MIN_GREEN_SUBSTR_LEN:
+            new_runs.append(run)
+            continue
+        matches = _find_matches(text, green_texts, green_norms, _MIN_GREEN_SUBSTR_LEN)
+        if not matches:
+            new_runs.append(run)
+        else:
+            new_runs.extend(_apply_matches(text, matches, MatchCategory.GREEN))
+
+    # === 同步BLUE ===
+    blue_texts = _collect_texts(reference_runs, MatchCategory.BLUE, _MIN_GREEN_SUBSTR_LEN)
+    blue_norms = [(bt, _normalize_for_char_compare(bt)) for bt in blue_texts
+                  if len(_normalize_for_char_compare(bt)) >= _MIN_GREEN_SUBSTR_LEN]
+
+    if blue_texts:
+        final_runs = []
+        for run in new_runs:
+            if run.category != MatchCategory.BLACK or not run.text.strip():
+                final_runs.append(run)
+                continue
+            text = run.text
+            if len(text) < _MIN_GREEN_SUBSTR_LEN:
+                final_runs.append(run)
+                continue
+            matches = _find_matches(text, blue_texts, blue_norms, _MIN_GREEN_SUBSTR_LEN)
+            if not matches:
+                final_runs.append(run)
+            else:
+                final_runs.extend(_apply_matches(text, matches, MatchCategory.BLUE))
+        new_runs = final_runs
+
     target_runs.clear()
     target_runs.extend(new_runs)
 
@@ -1694,6 +1900,72 @@ def _extract_run_text(start_block: MicroBlock, end_block: MicroBlock, original_t
     return start_block.text if start_block is end_block else start_block.text + end_block.text
 
 
+def _warmup_models(pairs: list[tuple[str, str]]) -> None:
+    """
+    在逐行匹配之前, 对整个矩阵做一次全局批量推理来预热模型缓存。
+
+    单行内的批量只有几个块, 前向传播批次小、并行度低; 把所有行的块合并成一批,
+    能显著提升 CPU/GPU 的吞吐。预热只是把结果写进缓存, 逐行匹配时全部命中,
+    判定逻辑与取值不变。任何异常都直接忽略, 退回原本的逐行推理。
+    """
+    try:
+        from models.embedding_model import encode, cosine_similarity_matrix
+        from models.nli_model import predict_batch
+    except Exception:
+        return
+
+    prepared = []
+    all_texts: list[str] = []
+
+    for ds_text, up_text in pairs:
+        if not ds_text or not up_text:
+            continue
+        ds_clean, _ = _strip_ascii_noise_for_matching(ds_text)
+        up_clean, _ = _strip_ascii_noise_for_matching(up_text)
+        ds_blocks = decompose_text(ds_clean)
+        up_blocks = decompose_text(up_clean)
+        if not ds_blocks or not up_blocks:
+            continue
+        ds_texts = [b.clean_text if b.clean_text else b.text for b in ds_blocks]
+        up_texts = [b.clean_text if b.clean_text else b.text for b in up_blocks]
+        all_texts.extend(ds_texts)
+        all_texts.extend(up_texts)
+        prepared.append((ds_blocks, up_blocks, ds_texts, up_texts))
+
+    if not all_texts:
+        return
+
+    # 1) 全矩阵一次性编码(内部会自动去重, 重复文本只算一次)
+    encode(all_texts)
+
+    # 2) 用已缓存的向量算出各行的匹配, 汇总所有可能触发 NLI 的文本对
+    nli_pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for ds_blocks, up_blocks, ds_texts, up_texts in prepared:
+        sim_matrix = cosine_similarity_matrix(encode(ds_texts), encode(up_texts))
+        ds_matches, up_matches = _optimal_matching(sim_matrix)
+
+        for i, ds_block in enumerate(ds_blocks):
+            j = ds_matches.get(i, int(sim_matrix[i].argmax()))
+            if float(sim_matrix[i][j]) >= EMBEDDING_SEMANTIC_THRESHOLD:
+                key = (ds_block.text, up_blocks[j].text)
+                if key not in seen:
+                    seen.add(key)
+                    nli_pairs.append(key)
+
+        for j, up_block in enumerate(up_blocks):
+            i = up_matches.get(j, int(sim_matrix[:, j].argmax()))
+            if float(sim_matrix[i][j]) >= EMBEDDING_SEMANTIC_THRESHOLD:
+                key = (up_block.text, ds_blocks[i].text)
+                if key not in seen:
+                    seen.add(key)
+                    nli_pairs.append(key)
+
+    # 3) 全矩阵一次性 NLI 推理
+    if nli_pairs:
+        predict_batch(nli_pairs)
+
+
 def verify_matrix(matrix) -> None:
     """
     对整个追踪矩阵执行文本匹配验证
@@ -1702,6 +1974,9 @@ def verify_matrix(matrix) -> None:
     Args:
         matrix: TraceabilityMatrix 对象
     """
+    # 先做一次全矩阵批量推理预热缓存, 再逐行匹配(结果不变, 只为提速)
+    _warmup_models([(r.downstream_content, r.upstream_content) for r in matrix.rows])
+
     for row in matrix.rows:
         row.match_result = match_text_pair(
             row.downstream_content,

@@ -1,6 +1,7 @@
 """
 端到端验证脚本 — 不依赖Streamlit，直接运行完整管线并对比基准
 """
+from __future__ import annotations
 import os
 import sys
 import time
@@ -10,7 +11,7 @@ warnings.filterwarnings('ignore')
 # 确保项目根目录在路径中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import PROJECT_ROOT, OUTPUT_DIR, MatchCategory
+from config import PROJECT_ROOT, OUTPUT_DIR, make_output_path, MatchCategory
 from core.traceability_matrix import build_backward_matrix
 from core.text_matcher import verify_matrix
 from core.excel_generator import generate_excel
@@ -88,17 +89,20 @@ def main():
 
     # === 4. 生成逆向追踪矩阵Excel ===
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(OUTPUT_DIR, "追踪验证结果_v5.xlsx")
+    output_path = make_output_path("系统需求逆向追踪矩阵.xlsx")
     print(f"\n>>> 生成逆向追踪矩阵Excel: {output_path}")
     generate_excel(matrix, output_path, include_forward=False)
     print(f"    完成!")
 
     # === 4b. 生成正向追踪矩阵Excel (独立文件) ===
-    forward_output = os.path.join(OUTPUT_DIR, "正向追踪矩阵.xlsx")
+    forward_output = make_output_path("用户需求正向追踪矩阵.xlsx")
     print(f"\n>>> 生成正向追踪矩阵Excel: {forward_output}")
     try:
         from generate_forward_matrix import generate_forward_matrix
-        user_pdf_dir = os.path.join(PROJECT_ROOT, "用户需求")
+        # 确定上游PDF目录: 系统需求的上游是用户需求, 系统设计的上游是系统需求
+        _UPSTREAM_MAP = {"系统需求": "用户需求", "系统设计": "系统需求", "软件需求": "系统设计", "硬件需求": "系统设计"}
+        upstream_dir_name = _UPSTREAM_MAP.get(downstream_dir, "用户需求")
+        user_pdf_dir = os.path.join(PROJECT_ROOT, upstream_dir_name)
         sys_req_dir = os.path.join(PROJECT_ROOT, downstream_dir)
         fwd_result = generate_forward_matrix(
             output_path, user_pdf_dir, forward_output, sys_req_dir,

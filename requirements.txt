@@ -1,3 +1,13 @@
 # 追踪验证系统依赖
 # 已有: torch, transformers, pdfplumber, PyMuPDF, openpyxl, pandas, numpy, scikit-learn
 streamlit>=1.30.0
+
+# PDF 结构化解析新模块 (pdfparser/) 依赖
+# 说明: 本机已安装(版本校验于 2026-08-17), 保留此处供环境复现参考
+# PyMuPDF>=1.24.0
+# pdfminer.six>=20231228
+# pdfplumber>=0.11.0
+# pandas>=2.0
+# numpy>=1.24
+# opencv-python-headless>=4.8
+# 可选: camelot-py + Ghostscript (启用 camelot 高准确率表格引擎)

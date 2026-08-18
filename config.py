@@ -1,7 +1,9 @@
 """
 追踪验证系统 - 全局配置模块
 """
+from __future__ import annotations
 import os
+from datetime import datetime
 from enum import Enum
 
 # ============================================================
@@ -13,10 +15,33 @@ EMBEDDER_MODEL_PATH = os.path.join(MODEL_DIR, "embedder")
 NLI_MODEL_PATH = os.path.join(MODEL_DIR, "nli")
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 
+# ============================================================
+# PDF 解析后端切换 (core/pdf_parser_adapter.py 读取)
+#
+# TRACE_NL_PDF_BACKEND 取值:
+#   auto   (默认) 优先使用新模块 pdfparser(五层管道结构化提取),
+#                  解析失败时自动降级到原始 core/pdf_parser
+#   new             强制使用新模块, 不降级
+#   legacy          强制使用原始模块(行为与集成前完全一致)
+#
+# 设置方式: os.environ["TRACE_NL_PDF_BACKEND"] = "legacy"
+#         或运行时: $env:TRACE_NL_PDF_BACKEND="legacy"; python run_e2e_test.py
+# ============================================================
+PDF_BACKEND = os.environ.get("TRACE_NL_PDF_BACKEND", "auto")
+
 # 系统设计文档目录
 SYSTEM_DESIGN_DIR = os.path.join(PROJECT_ROOT, "系统设计")
 # 系统需求文档目录
 SYSTEM_REQUIREMENT_DIR = os.path.join(PROJECT_ROOT, "系统需求")
+
+# ============================================================
+# 输出文件工具
+# ============================================================
+def make_output_path(base_name: str) -> str:
+    """生成带时间戳的输出文件路径，避免覆盖已有文件"""
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    name, ext = os.path.splitext(base_name)
+    return os.path.join(OUTPUT_DIR, f"{name}_{ts}{ext}")
 
 # ============================================================
 # 文档层级目录映射

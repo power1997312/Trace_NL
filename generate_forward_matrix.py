@@ -1,4 +1,5 @@
-﻿"""
+from __future__ import annotations
+"""
 正向追踪矩阵生成模块
 
 从已完成的逆向追踪矩阵Excel中提取匹配数据，结合用户需求PDF的完整章节结构，
@@ -28,6 +29,8 @@ from config import (
     FONT_NAME, HEADER_FONT_SIZE, CONTENT_FONT_SIZE, ID_FONT_SIZE,
     MatchCategory,
 )
+
+from core.pdf_parser_adapter import prefetch_pdfs
 
 NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 
@@ -202,14 +205,25 @@ def _read_reverse_matrix_data(xlsx_path):
             up_data = cells.get('F', {})
 
             # 更新当前下游条目追踪器 (处理下游侧合并单元格)
-            if ds_id:
+            # 仅当ds_id和ds_text同时存在时才更新缓存
+            # 防止B列有值但C列为空(合并单元格)时覆盖缓存的空文本
+            ds_text_val = ds_data.get('text', '')
+            if ds_id and ds_text_val:
                 current_ds = {
                     'ds_id': ds_id,
-                    'ds_text': ds_data.get('text', ''),
+                    'ds_text': ds_text_val,
                     'ds_runs': ds_data.get('runs'),
                     'ds_category': ds_data.get('category', MatchCategory.BLACK),
                 }
+            elif ds_id and not ds_text_val and current_ds:
+                # B列有值但C列为空(合并单元格) -> 使用缓存的下游内容
+                ds_data = {
+                    'text': current_ds['ds_text'],
+                    'runs': current_ds['ds_runs'],
+                    'category': current_ds['ds_category'],
+                }
             if not ds_id and current_ds:
+                # B列为空(合并单元格) -> 使用缓存的下游条目号和内容
                 ds_id = current_ds['ds_id']
                 ds_data = {
                     'text': current_ds['ds_text'],
@@ -249,7 +263,7 @@ def _normalize_ref(ref):
     return ref
 
 
-def _extract_pdf_items(pdf_path):
+def _extract_pdf_items(pdf_path, doc_name=''):
     """
     从PDF中提取所有需求条目和章节
 
@@ -257,9 +271,9 @@ def _extract_pdf_items(pdf_path):
     - 章节型文档: 提取章节, 标题截断至20字防止正文泄漏
 
     Returns:
-        list[dict]: 每项包含 key, content, section_number, section_title, item_id
+        items: 每项含 key, content, section_number, section_title, item_id
     """
-    from core.pdf_parser import extract_full_text
+    from core.pdf_parser_adapter import extract_full_text
     from core.requirement_extractor import (
         extract_requirement_items, extract_sections,
         detect_document_type,
@@ -490,19 +504,35 @@ def _build_forward_data(reverse_rows, pdf_items_by_doc):
     """
     forward_data = OrderedDict()
 
+    # 为所有文档构建键映射
+    doc_key_maps = {}
     for doc_name, pdf_items in pdf_items_by_doc.items():
-        # 构建键映射
-        key_map = _build_item_key_map(pdf_items)
+        doc_key_maps[doc_name] = _build_item_key_map(pdf_items)
 
-        # 筛选本文档的逆向矩阵行
-        doc_rows = [r for r in reverse_rows if r['up_doc'] == doc_name]
+    # 将每条逆向矩阵行匹配到对应PDF条目 (跨文档搜索)
+    # up_doc可能是目录名(如"系统需求")而非PDF文件名(如"DCS需求说明书")
+    # 因此不能仅靠up_doc过滤, 需要尝试在所有文档中匹配up_ref
+    doc_item_to_rows = {doc_name: defaultdict(list) for doc_name in pdf_items_by_doc}
+    for row in reverse_rows:
+        matched = False
+        # 优先在up_doc对应的文档中查找
+        for doc_name, pdf_items in pdf_items_by_doc.items():
+            if row.get('up_doc', '') == doc_name or row.get('up_doc', '') in doc_name or doc_name in row.get('up_doc', ''):
+                idx = _match_ref_to_item(row['up_ref'], doc_key_maps[doc_name], pdf_items)
+                if idx is not None:
+                    doc_item_to_rows[doc_name][idx].append(row)
+                    matched = True
+                    break
+        # 如果up_doc不匹配任何文档名, 在所有文档中搜索
+        if not matched:
+            for doc_name, pdf_items in pdf_items_by_doc.items():
+                idx = _match_ref_to_item(row['up_ref'], doc_key_maps[doc_name], pdf_items)
+                if idx is not None:
+                    doc_item_to_rows[doc_name][idx].append(row)
+                    break
 
-        # 将逆向矩阵行匹配到PDF条目
-        item_to_rows = defaultdict(list)
-        for row in doc_rows:
-            idx = _match_ref_to_item(row['up_ref'], key_map, pdf_items)
-            if idx is not None:
-                item_to_rows[idx].append(row)
+    for doc_name, pdf_items in pdf_items_by_doc.items():
+        item_to_rows = doc_item_to_rows[doc_name]
 
         # 为每个PDF条目构建正向数据
         for item_idx, item in enumerate(pdf_items):
@@ -760,16 +790,21 @@ def generate_forward_matrix(
     reverse_rows = _read_reverse_matrix_data(reverse_matrix_path)
     print(f"    读取到 {len(reverse_rows)} 条追踪关系")
 
-    # 2. 从用户需求PDF提取所有条目
-    print(">>> 提取用户需求PDF条目...")
+    # 2. 从上游PDF提取所有条目 (仅搜索user_pdf_dir)
+    print(">>> 提取上游PDF条目...")
     pdf_items_by_doc = {}
-    if os.path.isdir(user_pdf_dir):
+    if user_pdf_dir and os.path.isdir(user_pdf_dir):
+        # 多份文档先并行预解析, 下面的循环直接命中缓存
+        prefetch_pdfs({
+            f.replace('.pdf', ''): os.path.join(user_pdf_dir, f)
+            for f in sorted(os.listdir(user_pdf_dir)) if f.lower().endswith('.pdf')
+        })
         for fname in sorted(os.listdir(user_pdf_dir)):
             if not fname.lower().endswith('.pdf'):
                 continue
             doc_name = fname.replace('.pdf', '')
             pdf_path = os.path.join(user_pdf_dir, fname)
-            items = _extract_pdf_items(pdf_path)
+            items = _extract_pdf_items(pdf_path, doc_name)
             pdf_items_by_doc[doc_name] = items
             print(f"    [{doc_name}]: {len(items)} 个条目")
 
@@ -812,12 +847,12 @@ def generate_forward_matrix(
 
 
 if __name__ == '__main__':
-    from config import PROJECT_ROOT, OUTPUT_DIR
+    from config import PROJECT_ROOT, OUTPUT_DIR, make_output_path
 
     reverse_matrix_path = os.path.join(OUTPUT_DIR, "追踪验证结果_v5.xlsx")
     user_pdf_dir = os.path.join(PROJECT_ROOT, "用户需求")
     sys_req_dir = os.path.join(PROJECT_ROOT, "系统需求")
-    output_path = os.path.join(OUTPUT_DIR, "正向追踪矩阵.xlsx")
+    output_path = make_output_path("正向追踪矩阵.xlsx")
 
     result = generate_forward_matrix(
         reverse_matrix_path, user_pdf_dir, output_path, sys_req_dir,

@@ -1,4 +1,5 @@
-﻿"""
+from __future__ import annotations
+"""
 需求条目/章节内容提取模块
 - 自动检测文档类型(ID型 vs 章节型)
 - 提取需求条目内容和章节内容
@@ -202,15 +203,31 @@ def extract_requirement_items(text: str) -> list[RequirementItem]:
 
         content = text[start:end].strip()
         content = _clean_content(content)
+        # 章节号及其内容保留在条目正文中(不再截断)
+        # 问题5: 去除条目号所在行尾随的标题(与条目号同行的简短标题)
+        content = _drop_entry_title_line(content)
 
-        # 去重: 保留内容更长的版本
+        # 去重合并: 同一 ID 多次出现(表格型文档的特征, 如 RPS 功能描述表)
+        # 表格型文档中, 同一 ID 在连续行中重复出现, 每行是需求的一个描述片段
+        # 策略: 同一 ID 的所有出现内容合并(去重行), 拼成完整需求描述
+        # (比"保留最长"更优: 表格型文档的最长出现常吞噬相邻 ID 的内容)
         if normalized_id in items_dict:
-            if len(content) > len(items_dict[normalized_id].content):
-                items_dict[normalized_id] = RequirementItem(
-                    item_id=normalized_id,
-                    raw_id=raw_id,
-                    content=content,
-                )
+            prev_content = items_dict[normalized_id].content
+            # 合并所有出现的内容
+            merged_lines = list(prev_content.split('\n')) + list(content.split('\n'))
+            # 去重行
+            seen = set()
+            out_lines = []
+            for line in merged_lines:
+                s = line.strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    out_lines.append(s)
+            items_dict[normalized_id] = RequirementItem(
+                item_id=normalized_id,
+                raw_id=raw_id,
+                content='\n'.join(out_lines),
+            )
         else:
             items_order.append(normalized_id)
             items_dict[normalized_id] = RequirementItem(
@@ -360,6 +377,8 @@ def _normalize_reference(ref: str) -> str:
     # 全角→半角标点
     ref = ref.replace('（', '(').replace('）', ')').replace('：', ':')
     ref = ref.replace('，', ',').replace('；', ';')
+    # 中文枚举逗号"、"统一去除(章节号"3、系统架构设计要求"→"3系统架构设计要求")
+    ref = ref.replace('、', '')
     # 去除多余空格
     ref = re.sub(r'\s+', '', ref)
     return ref
@@ -373,18 +392,179 @@ def _extract_leading_number(text: str) -> str | None:
     return None
 
 
+# ============================================================
+# 问题1修复: 条目内容边界清洗
+# ============================================================
+
+# 行首章节号标题: 如 "2." "1.2" "3." 后跟章节标题(CJK/大写字母)
+# 注意: 必须位于行首(\n之后), 以避开 "子系统2.ESFAC" 这类句中的数字
+# 允许编号与标题之间隔一个换行(部分PDF中 "2." 独占一行, 标题在下一行)
+# 优化: 要求多级编号(如3.2)或单级编号+句点+空格(如"2. 安全级DCS")
+#        或单级编号+空格(如"2 安全级DCS"), 防止"2楼"误判
+_CHAPTER_HEADING_RE = re.compile(
+    r'\n[ \t]*(?:'
+    r'\d+(?:\.\d+)+\.?[ \t]*'          # 多级编号: 3.2, 3.2.1, 3.2.1.
+    r'|'
+    r'\d+\.[ \t]+'                      # 单级编号+句点+空格: 2. xxx
+    r'|'
+    r'\d+[ \t]+'                        # 单级编号+空格: 2 xxx (不含句点)
+    r')(?:\n[ \t]*)?[\u4e00-\u9fffA-Z]'
+)
+
+
+def _truncate_at_chapter_heading(text: str) -> str:
+    """
+    截断条目内容尾部泄漏的其他章节标题/内容(问题1第二条)
+
+    文档中两个条目号之间常夹杂其他章节(如 "2. 安全级DCS系统总体结构"),
+    这些内容应由 extract_sections 按章节号另行提取, 不应混入当前条目正文。
+    仅匹配行首的章节号, 避免误删正文中的 "子系统2." 等句中数字。
+    """
+    if not text:
+        return text
+    m = _CHAPTER_HEADING_RE.search(text)
+    if m:
+        return text[:m.start()].strip()
+    return text
+
+
+# ============================================================
+# 问题5修复: 丢弃条目号所在行尾随的标题
+# ============================================================
+
+_TITLE_DROP_PUNCT = set('。；！？')
+
+
+def _drop_entry_title_line(text: str) -> str:
+    """
+    丢弃条目内容首行的简短标题(问题5)
+
+    由于 _merge_intra_sentence_breaks 已保留"条目ID行"与正文的换行,
+    条目号同行尾随的标题会成为内容的第一行。若首行为无句末标点的
+    简短标题(<=15字)且内容含多行, 则丢弃首行, 从正文开始。
+    例: <FZSDCS34-ICADS001> 模块类故障及诊断\\n每一类模块中...
+        -> 丢弃"模块类故障及诊断", 保留"每一类模块中..."
+    """
+    if not text:
+        return text
+    lines = text.split('\n')
+    if len(lines) < 2:
+        return text
+    first = lines[0].strip()
+    if (len(first) <= 15
+            and not any(p in first for p in _TITLE_DROP_PUNCT)
+            and not first.endswith('：') and not first.endswith(':')):
+        return '\n'.join(lines[1:]).strip()
+    return text
+
+
+# ============================================================
+# 问题4修复(补充): 矢量架构图文字块移除
+# ============================================================
+# 架构图节点/连线文字的特征词(矢量图无图片对象, 不能靠图片包围盒排除)
+_ARCH_TOKENS = re.compile(
+    r'(NC DCS|/DAS|ECP/BUP|RSP/|PIPS-|GW-A|GW-A/B|SVDU|PAC-|PAC-B|协转|'
+    r'隔离|点对点光纤通信|硬接线驱动器|停堆断路器|驱动器|架构示意图|示意图|'
+    r'ESFAC-|ESFSC|F-SC\d?)'
+)
+# 架构图大写缩写(要求CJK较少, 避免误判正文如"应包含PIPS、RTC")
+_ABBR_RE = re.compile(
+    r'\b(PIII|PII|PIV|PTRAIN|ATRAIN|BTU|RTC|TU|PIPS|ESFAC|ESFSC|SVDU|'
+    r'PAC|F-SC\d?|NC|DAS|ECP|BUP|RSP|GW)\b'
+)
+
+
+def _is_diagram_like(line: str) -> bool:
+    """判断单行是否为架构图文字(节点标签/连线关系)"""
+    s = line.strip()
+    if not s:
+        return False
+    cjk = len(re.findall(r'[一-鿿]', s))
+    # 真实中文句子(以句末标点结尾)绝不可能是图内节点标签
+    # (如 "本项目安全级DCS采用图3所示的系统架构。" 含 F-SC/图3 但属正文)
+    if re.search(r'[。！？]$', s):
+        return False
+    # 含较多CJK且带中文标点(；：、，)的描述性句子/条款, 也非图内文字
+    # (如 "PIPS：用于现场传感器信号的调理、供电、分配和隔离；")
+    if cjk >= 8 and re.search(r'[。；：、，]', s):
+        return False
+    # 短缩写/编号行(如 "A1" "≥1" "F-SC2"): 基本无CJK且含字母/符号
+    # 注意: 排除纯章节号(如 "3.4.1", 无字母/≥)
+    if cjk <= 3 and len(s) <= 12 and re.search(r'[A-Za-z≥]', s):
+        return True
+    # 含多个 '/' 的连接关系行(如 "NC DCS/DASNC DCS/DASECPRSP/")
+    if s.count('/') >= 2 and re.search(r'[A-Z]', s):
+        return True
+    # 架构图大写缩写节点标签(要求CJK较少且行较短, 避免误判正文)
+    if cjk <= 5 and len(s) <= 30 and _ABBR_RE.search(s):
+        return True
+    # 架构图专用短标签词(如"停堆断路器"、"点对点光纤通信"等),
+    # 要求行短且CJK较少(避免误删正文中提及这些词的正常描述句)
+    if cjk <= 15 and len(s) <= 40 and _ARCH_TOKENS.search(s):
+        return True
+    return False
+
+
+def _remove_arch_diagram_blocks(text: str) -> str:
+    """
+    移除内容中的矢量架构图文字块(问题4)
+
+    机制:
+    - 架构图(如图2/图3 安全级DCS架构示意)常为矢量绘制, 无图片对象,
+      其节点标签/连线文字被当作普通文本提取, 污染条目内容。
+    - 这些文字表现为连续多行简短标签(>=6行)或带有"图N...架构示意图"
+      图注的块。检测并整块删除, 同时保留其前的真实正文。
+    """
+    if not text:
+        return text
+    lines = text.split('\n')
+    n = len(lines)
+    keep = [True] * n
+
+    # 1) 连续 >=5 行图内文字 -> 整段删除
+    i = 0
+    while i < n:
+        if _is_diagram_like(lines[i]):
+            j = i
+            while j < n and _is_diagram_like(lines[j]):
+                j += 1
+            if j - i >= 5:
+                for k in range(i, j):
+                    keep[k] = False
+            i = j
+        else:
+            i += 1
+
+    # 2) 图注行("图N...架构示意图"): 删除图注及其前方连续图内文字
+    #    仅匹配"以图N开头"的真正图题行, 避免误删正文中提及"如图3所示"的句子
+    #    (如 "本项目安全级DCS采用图3所示的系统架构。" 含 图3+F-SC 但不应以图注删除)
+    for i in range(n):
+        if keep[i] and re.match(r'图\s*\d+', lines[i].strip()) and _ARCH_TOKENS.search(lines[i]):
+            keep[i] = False
+            j = i - 1
+            while j >= 0 and _is_diagram_like(lines[j]):
+                keep[j] = False
+                j -= 1
+
+    return '\n'.join(lines[k] for k in range(n) if keep[k])
+
+
 def _clean_content(text: str) -> str:
     """清理条目内容"""
-    # 折叠所有连续换行为单个换行(消除PDF提取中的双换行/多换行)
-    text = re.sub(r'\n{2,}', '\n', text)
-    # 去除行首尾空白
+    # 1. 移除空行(消除PDF提取中的多余空行, 问题1)
+    #    原逻辑 '\n'.join(lines) 会保留空字符串 -> 产生 \n\n 多余空行
     lines = [line.strip() for line in text.split('\n')]
+    lines = [ln for ln in lines if ln]
     text = '\n'.join(lines)
-    # 移除ASCII架构图/表格噪声
+    # 2. 拆分被 '；' 粘连的列表项(如 "4)…；5)…" -> 分行, 问题1)
+    text = re.sub(r'；\s*(?=\d+[)）])', '；\n', text)
+    # 3. 移除架构图文字块(矢量图无图片对象, 问题4)
+    text = _remove_arch_diagram_blocks(text)
+    # 4. 移除ASCII架构图/表格噪声
     text = _remove_ascii_diagrams(text)
-    # 剥离尾部章节标题泄漏
+    # 5. 剥离尾部章节标题泄漏
     text = _strip_trailing_headings(text)
-    # 剥离尾部附录表引用
+    # 6. 剥离尾部附录表引用
     text = _strip_trailing_appendix_refs(text)
     return text.strip()
 
@@ -519,20 +699,34 @@ def _truncate_noisy_content(text: str, median_len: int = 0) -> str:
     return text
 
 
-# 尾部章节标题正则: 匹配 "\n3.2系统功能" "\n3.3 系统架构" 等
+# 尾部章节标题正则: 匹配 "\n3.2系统功能" "\n3.3 系统架构" "\n2 安全级DCS" 等
+# 与_CHAPTER_HEADING_RE保持一致: 要求多级编号/单级+句点空格/单级+空格
+# 防止"4楼绿色33..."等表格数据被误判为章节标题
 _TRAILING_HEADING_RE = re.compile(
     r'\n+'
-    r'(?:\d+(?:\.\d+)*[\s]*\S.{0,40})'  # 单个章节标题
-    r'(?:\n+\d+(?:\.\d+)*[\s]*\S.{0,40})*'  # 可能连续多个章节标题
+    r'(?:'
+    r'\d+(?:\.\d+)+\.?[ \t]*[\u4e00-\u9fffA-Za-z].{0,40}'   # 多级编号+标题: 3.2系统功能
+    r'|\d+(?:\.\d+)+\.?[ \t]*(?=\n)'                        # 多级编号独占行: 3.4.1
+    r'|\d+\.[ \t]+[\u4e00-\u9fffA-Za-z].{0,40}'              # 单级+句点+空格: 2. 安全级DCS
+    r'|\d+[ \t]+[\u4e00-\u9fffA-Za-z].{0,40}'                # 单级+空格: 2 安全级DCS
+    r'|[\u4e00-\u9fff]{2,25}[（(][A-Za-z][A-Za-z0-9/\-,]*[)）]'  # 子标题(全角括号): 紧急停堆系统（RTS）
+    r')'
+    r'(?:\n+(?:'
+    r'\d+(?:\.\d+)+\.?[ \t]*[\u4e00-\u9fffA-Za-z].{0,40}'
+    r'|\d+(?:\.\d+)+\.?[ \t]*(?=\n)'
+    r'|\d+\.[ \t]+[\u4e00-\u9fffA-Za-z].{0,40}'
+    r'|\d+[ \t]+[\u4e00-\u9fffA-Za-z].{0,40}'
+    r'|[\u4e00-\u9fff]{2,25}[（(][A-Za-z][A-Za-z0-9/\-,]*[)）]'
+    r'))*'
     r'\s*$',  # 直到文本末尾
 )
 # 尾部子章节标题: 如 "反应堆保护单元(RTC)" "专设安全设施驱动系统单元(ESFAC)"
-# 允许前面有换行或直接附在正文尾部
+# 允许前面有换行或直接附在正文尾部; 支持半角/全角括号
 _TRAILING_SUBHEADING_RE = re.compile(
-    r'(?:\n+|(?<=[\u3002\uff0e.]))'  # 前面是换行或句号
-    r'([\u4e00-\u9fff]{2,20})'        # CJK文本(2-20字)
-    r'\([A-Za-z][A-Za-z0-9/\-,]*\)'   # 括号内英文缩写
-    r'\s*$',                            # 直到文本末尾
+    r'(?:\n+|(?<=[\u3002\uff0e.]))'          # 前面是换行或句号
+    r'([\u4e00-\u9fff]{2,20})'                # CJK文本(2-20字)
+    r'[（(][A-Za-z][A-Za-z0-9/\-,]*[)）]'      # 括号内英文缩写(全角/半角)
+    r'\s*$',                                   # 直到文本末尾
 )
 
 

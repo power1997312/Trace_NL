@@ -1,4 +1,5 @@
-﻿"""
+from __future__ import annotations
+"""
 逐追踪关系精细对比: 验证结果 vs 基准数据
 - 按行(追踪关系)组织对比
 - 每个单元格逐run分析颜色差异
