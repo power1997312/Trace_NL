@@ -663,6 +663,115 @@ class PDFParserBackend:
 
 ---
 
+## 八、优化执行记录（2026-08-18 ~ 08-19）
+
+本节记录在后续验证与优化中发现的问题、根因与修复经验。所有修复均已提交（commit `fc7de55`）并推送至 GitHub，回归测试 `tests/test_cross_page_merge_regression.py`、`tests/test_list_structure_regression.py` 全部通过。
+
+### 8.1 跨页段落合并 bug（2026-08-18）
+
+**现象**：`DCS设备技术规格书.pdf` 第 1 页"3.2 系统和设备分级"、"3.2.1 系统和设备分级"、"3.2.2.1"等章节标题下被重复注入"质保等级:QA1"、"DCS 供货商可以采用同一平台..."两段内容（第 2 页顶部内容），5 个不同位置重复出现；且 3.2.2.1/3.2.2.2 缺少"在役检查/失去厂外电/环境抗震"等数据。
+
+**根因**（`pdfparser/layout.py` `_merge_cross_page_paragraphs`，两个叠加 bug）：
+1. 循环入口只检查 `a`（前一页块）是否已合并，**未检查 `b`（下一页首块）**是否已被合并 → 第 2 页顶部块被前一页**每一个** text 块重复合并（注入 5 次）。
+2. 合并条件只看字体/文本连续性，**不看页面几何位置** → 页面中部标题（3.2/3.2.1）与下一页首块误合。
+3. 合并后未更新 `a.page` 字段（仍是前一页，bbox 却跨页），适配器按 `block.page` 分组导致内容错误归页。
+
+**修复**：
+- 循环入口增加 `if j in merged or id(ordered[j]) in merged: continue`（防重复注入）。
+- 增加页面几何边界约束：仅当 `a` 位于本页底部（y1 距本页正文最大 y1 ≤ 60pt）且 `b` 位于下一页顶部（y0 距下一页最小 y0 ≤ 60pt）时才合并。
+- 只允许**每页最后一个正文块**作为合并源（`last_text_by_page.get(a.page) != i` 则跳过），避免非页末块抢走续行。
+
+**连带修复**（`_hf_lines` 跨页重复误杀列表项）：`_hf_lines` 原按"出现次数 ≥ max(3, 35%)"判定页眉页脚，跨页重复的列表项（如"在役检查和定期试验；"在 2 页出现 3 次）被误杀。增加**位置一致性判定**：跨页出现的 y0 差异 ≤ 20pt 才判为页眉页脚（真页眉页脚每页位置固定，列表项则分散）。
+
+**验证**：修复后 3.2/3.2.1 标题下无污染，"在役检查/失去厂外电/环境抗震"恢复，质保等级:QA1 正确留在第 2 页。流水线 A GREEN 9/14 → 15/16 (94%)。
+
+### 8.2 bullet 列表结构丢失 + 正文误判为列表（2026-08-18）
+
+**现象 1**：`DCS设备技术规格书` 3.2.2.1/3.2.2.2 的 7 个 bullet 列表被合并成单段，bullet 标记消失。
+
+**根因**：`_cluster_paragraphs` 把 Wingdings 私有字符 bullet 行（`\uf06c`）与下一行 SimSun 文本合并成同一段，ListDetector 提取不出独立 bullet 结构。
+
+**修复**：`_cluster_paragraphs` 检测非主流字体（非 SimSun/TimesNewRomanPSMT）的单字符行（`len(text.strip()) <= 3`），强制 flush 前段并独立成段（symbol 行与内容文本行分属两个 block）。
+
+**现象 2**：`RPS系统需求规范书` RQ-010/012/013 句子折半（"（A、\nB）"被拆行）。
+
+**根因**：`_split_regions` 把正文行内"B）"（括号内单字母+右括号）误识别为列表 marker（alpha 模式 `^([a-zA-Z])[.、)）]\s*`），整段连续正文被识别为 list。
+
+**修复**：`ListDetector.identify` 增加两道门槛：
+1. 至少一个 list region 包含 ≥2 个有效 item；
+2. 所有 list region 的 marker type 必须是常见列表标记（numeric/circled/cn_num/bullet/dash），排除 alpha（单字母+右括号易与正文括号混淆）。
+
+**验证**：流水线 B GREEN 34/41 → 36/41 (88%)。
+
+### 8.3 Excel 行高未随内容展开（2026-08-19）
+
+**现象**：Excel 中内容与 PDF 解析段落结构不一致——bullet 列表显示为单段，行内容被垂直挤压。
+
+**根因**：**不在解析/提取/匹配层**（全链路核验 `\n` 完整保留、`wrapText="1"` 正确），而在 `excel_generator.py` 等生成 Excel 时**未设置数据行行高**——默认 15pt 单行高，wrap_text 产生的多行被视觉挤压。
+
+**修复**（3 个文件新增 3 个辅助函数）：
+- `_estimate_visible_lines(text, col_width)`：按显式换行分段 + 列宽折行（CJK 全角按 2 半角宽计）估算可见行数。
+- `_set_row_height(ws, row, texts_with_widths)`：数据行按内容行数动态设行高（`max(15, 行数×17+4)` pt）。
+- `_set_merged_row_heights(ws, first_row, last_row, ...)`：合并单元格区域按行数平均分摊总高度。
+- 应用点：`_write_backward_sheet`、`_write_forward_sheet`、`generate_forward_matrix.py`、`generate_forward_sd_matrix.py` 各分支。
+
+### 8.4 富文本换行符独立 run 导致标绿内容合并为一行（2026-08-19）
+
+**现象**：同样内容，段落被标绿（GREEN）时 Excel 中合并为一行；标黑（BLACK）时正常。
+
+**根因**（用户洞察的关键）：`text_matcher.py` 的 `_blocks_to_runs_subphrase` 生成子短语 GREEN 时，把换行符 `\n` 拆到**独立的 BLACK run**（XML 中 `<t>\n</t>`），GREEN run 只含纯文本。WPS/Excel 渲染富文本时，夹在 GREEN 文本之间的"纯换行 run"的换行失效 → 标绿的多行合并成一行。对比：整段单 run 时换行在 run 内部，正常。
+
+**证据**：修复前 F10 22 个 run、换行符全在独立 BLACK run；修复后 11 个 run、换行符全部附着在文本 run 内部。
+
+**修复**：`_blocks_to_runs_subphrase` 返回前增加后处理——把每个 run **开头的换行符剥离并合并到前一个 run 的末尾**，使换行符附着在文本 run 内部。文本拼接完整性（字符级相等）已验证。
+
+### 8.5 带目录文档的目录条目污染章节提取（2026-08-19）
+
+**现象**：带目录的文档，目录页每行（如 "3.2 系统和设备分级 .... 15"）被当章节提取进 Excel 作为匹配对象，与正文同名章节形成重复/覆盖。
+
+**根因**（两层）：
+- 提取层：`extract_sections` 正则按 MULTILINE 匹配所有行首编号标题，目录条目恰好命中。
+- 新模块：`headings.py` 无目录页识别，目录条目按编号模式甚至被标为 heading。
+
+**修复**（首选 + 可选）：
+- `extract_sections`：TOC 行特征检测（行尾页码 + 点线引导符 `.` 或连续空格）剔除目录条目。修复一个边界 bug：`section_pattern` 的 `(?:\n|$)` 消耗换行符导致 `m.end()` 指向换行符后，`text[:m.end()].rsplit('\n', 1)[-1]` 取到空行，改用 `text[m.start():m.end()]`。
+- `headings.py`：`_mark_toc_consumed` 检测"目录/CONTENTS"标题块，把点线引导符 + 右对齐页码的目录条目标记为 `consumed`（不进标题树、不进正文），从源头消除。
+
+### 8.6 追踪关系表内容污染需求条目（2026-08-19）
+
+**现象**：文档末尾的需求追踪关系表行（如 `<RPS-SYS-RQ-010> <UR-SYS-005> 本条目追踪用户需求`）被 ID 正则误识别，正文条目被表格行噪声覆盖/污染。
+
+**根因**：`extract_requirement_items` 用 `ITEM_ID_REGEX` 全文匹配，不区分正文与追踪表；同 ID 多出现时合并逻辑把表格行内容并入正文。
+
+**修复**（`requirement_extractor.py`）：
+1. 追踪表行过滤：行内嵌另一 ID（`<xxx>`）、极短无句末标点摘要（≤30 字符，含跨行断开）、以"附表/表N/序号/本文档中的设计标志号"等表头词开头的出现 → `continue` 跳过。
+2. 追踪表表头截断：正文条目内容夹带"附表N/序号/本文档中的设计标志号"等表头时，在表头位置截断（`_TOC_TABLE_HEADER_RE`）。
+3. `tables.py`：无线表检测增加表头关键词启发式（条目/编号/序号/上游/追踪/来源/对应/关联/说明/备注/文件），命中时放宽阈值（`min_rows=3→2`），提高追踪表识别率，避免表内容流入正文。
+
+### 8.7 回归修复：条目标题误删导致匹配退化（2026-08-19）
+
+**现象**：实施 8.5/8.6 修复后，流水线 B 从 GREEN 36/41 降至 35/41（`ICADS009/011/012` 相关）。
+
+**定位方法**（关键经验）：逐一恢复文件到 HEAD 版本跑流水线 B，二分定位出 `requirement_extractor.py` 引入回归；再对比新旧 `extract_requirement_items` 输出 diff，发现 `ICADS009` 内容从 83 字符降至 76 字符——**追踪表过滤（8.6）让 ICADS009 从"2 次出现合并"变为"仅正文 1 次出现"，从而触发 `_drop_entry_title_line` 误删正文首行"机柜门开状态"**。
+
+**根因**：`_drop_entry_title_line` 原本删除所有 ≤15 字无标点短首行，把条目**专有名词标题**（"机柜门开状态"、"I&C故障与机柜门开报警"，与上游 `<DCS-SyRS005>` 的"-机柜门开;"匹配关键）误当冗余标题删除。
+
+**修复**：仅丢弃**通用章节类标题**——首行含章节号（`^\d+(\.\d+)*[\.、]?\s*`）或通用词（概述/要求/功能/描述/简介/综述/规则/准则/说明/意义/目的/范围/组成/结构/原理/故障诊断/模块类/系统级/总体/通用）才删除；条目专有名词保留。
+
+**验证**：流水线 B 恢复 GREEN 36/41 (88%)。ICADS009/011/012 标题保留、正文完整、追踪表噪声清除。
+
+### 8.8 本轮经验总结
+
+1. **跨页/跨块合并必须做几何边界约束**：仅凭字体+文本连续性合并，会把页面中部块与下一页首块误合。合并前必须检查"页末→页顶"的位置关系，且只允许每页最后一个块作为合并源。
+2. **集合去重要检查消费端**：`merged` 标记后，循环入口必须同时检查 `b` 是否已被消费，否则同一资源被重复消费。
+3. **富文本换行符必须附着在文本 run 内**：openpyxl CellRichText 中，换行符独立成 run 会被 WPS/Excel 渲染忽略（标绿合并为一行）。所有 run 构造后应做"前导换行符合并到前一个 run"后处理。
+4. **Excel 行高是"内容结构可读性"的一部分**：wrap_text + 默认行高会把多行内容视觉挤压成单段。按内容换行数/列宽动态设行高是必需步骤（合并区域按行数分摊）。
+5. **过滤噪声要防误伤正文**：追踪表/目录过滤规则应"窄而准"（用多特征 AND 而非单宽特征），且要结合下游匹配回归验证。本例 `_drop_entry_title_line` 的通用词白名单是经过回归验证的平衡方案。
+6. **回归定位用"逐文件恢复 HEAD"二分法**：多个文件同时改动时，逐个恢复某文件到 git HEAD 跑 E2E，能快速锁定引入回归的文件；再对新旧提取输出做 diff 定位具体逻辑差异。
+7. **PowerShell 中文/编码坑**：中文路径传参、UTF-8 输出重定向在 PowerShell 5.1 下易乱码。用 `$env:PYTHONIOENCODING='utf-8'` + Python 脚本内 `sys.stdout.reconfigure(encoding='utf-8')` 最稳妥；文件写入用 UTF-8-sig 便于 read_file 读取。
+
+---
+
 ## References
 
 1. 原始解析器源码：`e:\Trace_NL\core\pdf_parser.py`
@@ -677,3 +786,6 @@ class PDFParserBackend:
 10. 新模块依赖清单：`e:\Trace_NL\PDF 识别\requirements.txt`
 11. 中间产物 dump 模块：`e:\Trace_NL\core\debug_dump.py`
 12. PDF 解析适配器：`e:\Trace_NL\core\pdf_parser_adapter.py`
+13. 回归测试：`e:\Trace_NL\tests\test_cross_page_merge_regression.py`
+14. 回归测试：`e:\Trace_NL\tests\test_list_structure_regression.py`
+15. 本次修复提交：`fc7de55`（2026-08-19）
