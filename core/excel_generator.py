@@ -181,6 +181,63 @@ def _union_text_runs(all_runs_list, full_text):
         runs.append(TextRun(text="".join(cur_text), category=cur_cat))
     return runs
 
+def _estimate_visible_lines(text, col_width: float, font_size: float = CONTENT_FONT_SIZE) -> int:
+    """估算文本在指定列宽(Excel字符单位)下 wrap_text 后的可见行数。
+
+    Excel 列宽 1 单位 ≈ 1 个半角字符宽度; 全角/CJK 字符按 2 单位计。
+    wrap_text 时文本按列宽自动折行, 显式换行(\\n)强制分段。
+    """
+    if not text:
+        return 1
+    # 可用字符空间: 列宽扣除左右边距余量
+    chars_per_line = max(4.0, col_width - 2.0)
+    total = 0
+    for seg in str(text).split('\n'):
+        if not seg:
+            total += 1
+            continue
+        w = 0.0
+        for ch in seg:
+            # 全角字符(含CJK)占 2 个半角宽度
+            w += 2.0 if ord(ch) > 0x7F else 1.0
+        lines = max(1, -(-int(w) // int(chars_per_line)))
+        total += lines
+    return max(1, total)
+
+
+def _set_row_height(ws, row: int, texts_with_widths: list[tuple], min_height: float = 15.0,
+                    line_height: float = 17.0, pad: float = 4.0) -> None:
+    """根据单元格内容估算并设置行高, 使 wrap_text 产生的多行在视觉上展开。
+
+    Args:
+        texts_with_widths: [(文本, 列宽), ...] —— 取其中最大估算行数作为行高依据。
+    """
+    max_lines = 1
+    for text, col_width in texts_with_widths:
+        if text:
+            max_lines = max(max_lines, _estimate_visible_lines(text, col_width))
+    ws.row_dimensions[row].height = max(min_height, max_lines * line_height + pad)
+
+
+def _set_merged_row_heights(ws, first_row: int, last_row: int,
+                            texts_with_widths: list[tuple], min_height: float = 15.0,
+                            line_height: float = 17.0, pad: float = 4.0) -> None:
+    """合并单元格区域的行高分摊。
+
+    合并单元格的 wrap_text 多行文本显示在合并区域总高度内, 因此把估算所需
+    总高度按行数平均分摊给合并范围内的每一行。
+    """
+    max_lines = 1
+    for text, col_width in texts_with_widths:
+        if text:
+            max_lines = max(max_lines, _estimate_visible_lines(text, col_width))
+    total_height = max(min_height, max_lines * line_height + pad)
+    n = max(1, last_row - first_row + 1)
+    per_row = max(min_height, total_height / n)
+    for r in range(first_row, last_row + 1):
+        ws.row_dimensions[r].height = per_row
+
+
 def _write_backward_sheet(ws, matrix: TraceabilityMatrix, row_indices: list[int] = None):
     """
     写入逆向追踪矩阵Sheet
@@ -271,6 +328,12 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix, row_indices: list[int]
         _set_cell(ws, r, 7, row.downstream_doc,
                   Font(name=FONT_NAME, size=ID_FONT_SIZE))
 
+        # 数据行行高: 下游内容(55)、上游内容(60) 按换行/列宽估算
+        _set_row_height(ws, r, [
+            (row.downstream_content, 55),
+            (row.upstream_content, 60),
+        ])
+
     # 合并单元格(一对多关系) —— 仅合并本sheet内完整属于该组的行
     for seq, indices in matrix.backward_merge_groups.items():
         if len(indices) < 2:
@@ -284,6 +347,10 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix, row_indices: list[int]
                 start_row=first_row, start_column=col,
                 end_row=last_row, end_column=col,
             )
+        # 合并组行高: 以首行的下游内容(union着色)为基准, 按行数分摊
+        _set_merged_row_heights(ws, first_row, last_row, [
+            (matrix.rows[indices[0]].downstream_content, 55),
+        ])
 
 
 def _write_forward_sheet(ws, matrix: TraceabilityMatrix, forward_rows: list):
@@ -334,6 +401,12 @@ def _write_forward_sheet(ws, matrix: TraceabilityMatrix, forward_rows: list):
         _set_cell(ws, r, 7, desc,
                   Font(name=FONT_NAME, size=ID_FONT_SIZE))
 
+        # 数据行行高: 上游内容(55)、下游内容(55) 按换行/列宽估算
+        _set_row_height(ws, r, [
+            (fr.get('upstream_content', ''), 55),
+            (fr.get('downstream_content', ''), 55),
+        ])
+
     # 合并单元格(上游侧)
     for seq, indices in matrix.forward_merge_groups.items():
         if len(indices) < 2:
@@ -345,6 +418,11 @@ def _write_forward_sheet(ws, matrix: TraceabilityMatrix, forward_rows: list):
                 start_row=first_row, start_column=col,
                 end_row=last_row, end_column=col,
             )
+        # 合并组行高: 以上游内容为基准, 按行数分摊
+        fr0 = forward_rows[indices[0]]
+        _set_merged_row_heights(ws, first_row, last_row, [
+            (fr0.get('upstream_content', ''), 55),
+        ])
 
 
 def _write_header_row(ws, headers: list[str], widths: list[int]):

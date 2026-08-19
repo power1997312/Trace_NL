@@ -82,6 +82,16 @@ class HeadingAssigner:
     # ------------------------------------------------------------------
     def assign_levels(self, blocks: list[Block]) -> None:
         """对 text 块标注 level（0=正文，1..N=标题层级）。"""
+        # 目录(TOC)页识别（2026-08-19）：
+        # 工程文档常带目录页, 目录条目(如 "3.2 系统和设备分级 .... 15")
+        # 会被编号模式误判为标题并进入文档树, 成为章节匹配对象, 与正文
+        # 同名章节冲突。目录条目的版面特征:
+        #   - 行尾带右对齐页码(与标题间有点线引导符"..."或大段空白)
+        #   - 独占一行, 短文本
+        # 识别到目录区(以"目录"标题开头)后, 将其中条目标记为 consumed,
+        # 使其不进入标题树与正文提取。
+        self._mark_toc_consumed(blocks)
+
         # 每页内容区（用于居中判定）：页面上全部文本块的范围
         page_areas: dict[int, tuple[float, float]] = {}
         for b in blocks:
@@ -137,6 +147,58 @@ class HeadingAssigner:
         for b in blocks:
             if b.type == "text" and b.level > 0:
                 b.type = "heading"
+
+    # ------------------------------------------------------------------
+    def _mark_toc_consumed(self, blocks: list[Block]) -> None:
+        """识别目录(TOC)页并把目录条目标记为 consumed, 避免被误当标题/正文。
+
+        识别策略（自底向上, 不依赖字体启发）:
+        1. 找到"目录"标题块（文本为 目录 / 目 录 / CONTENTS, 独占一行）;
+        2. 目录条目 = 编号开头 + 行尾带右对齐页码（块内最后一行以数字结尾,
+           且与行首编号之间有 点线引导符('...') 或 大段空白）;
+        3. 命中条目块标记为 consumed。
+        """
+        _TOC_HEAD = re.compile(r"^\s*(目\s*录|CONTENTS)\s*$")
+        toc_idx: Optional[int] = None
+        for i, b in enumerate(blocks):
+            if b.type != "text":
+                continue
+            if _TOC_HEAD.match(b.text.strip()):
+                toc_idx = i
+                break
+        if toc_idx is None:
+            return
+
+        _num_prefix = re.compile(r"^\s*(\d+(?:\.\d+)*\.?|第[一二三四五六七八九十百\d零]+[章节部分篇讲]|附录\s*[A-Za-z\d])\s*")
+        _dot_leader = re.compile(r"\.{2,}")   # 点线引导符
+        _num_line = re.compile(r"\s\d+(?:-\d+)?\s*$")  # 行尾页码
+
+        for b in blocks[toc_idx + 1:]:
+            if b.type != "text":
+                continue
+            # 目录区结束: 遇到非"短编号标题"块(即正文段落) 或 明显长正文
+            t = b.text.strip()
+            if not t:
+                continue
+            if len(t) > 90:  # 长段落 → 目录区已结束
+                break
+            lines = [ln.strip() for ln in t.split('\n') if ln.strip()]
+            if not lines:
+                continue
+            first = lines[0]
+            if _num_prefix.match(first) and _dot_leader.search(first) and _num_line.search(first):
+                b.type = "consumed"
+                continue
+            # 无点线引导时: 若整块是"单行编号短标题", 且行内有 ≥2 个连续空格
+            # (标题与右对齐页码之间的空白), 也判为目录条目。
+            if len(lines) == 1 and _num_prefix.match(first):
+                if len(first) <= 60 and re.search(r"[ \t]{2,}", first) and _num_line.search(first):
+                    b.type = "consumed"
+                    continue
+            # 其他内容 → 目录区结束（目录后正文通常从编号标题开始, 但为了
+            # 稳健, 仅当不是编号短行时停止扫描）
+            if not _num_prefix.match(first):
+                break
 
     # ------------------------------------------------------------------
     def _font_signatures(self, blocks: list[Block]) -> Counter:

@@ -166,6 +166,31 @@ class PdfplumberEngine(_BaseEngine):
         for seg in segments:
             if len(seg) < 3:
                 continue
+            # 表头关键词启发式（2026-08-19）：
+            # 需求追踪关系表（"条目号/上游条目号/追踪说明"）常为无线表,
+            # 且可能只有 2~3 列、行数偏少。若段首行字段含表头关键词,
+            # 放宽检测阈值使其被识别为表格, 避免表内容被当作正文污染
+            # 需求条目提取。
+            _HEADER_KW = ("条目", "编号", "序号", "代码", "上游", "追踪",
+                          "来源", "对应", "关联", "说明", "备注", "文件")
+            is_trace_header = False
+            first_fields = seg[0][1]
+            if first_fields and len(first_fields) >= 2:
+                head_text = "".join(t for t, _, _ in first_fields)
+                kw_hits = sum(1 for kw in _HEADER_KW if kw in head_text)
+                # 命中 >=2 个关键词, 或命中 "条目/编号/序号" 之一且 "追踪/来源/上游" 之一
+                if kw_hits >= 2 or (
+                        any(k in head_text for k in ("条目", "编号", "序号"))
+                        and any(k in head_text for k in ("追踪", "来源", "上游", "对应"))):
+                    is_trace_header = True
+            if is_trace_header:
+                # 放宽: 追踪表至少 2 行即可(表头+数据), 列数允许 2
+                if len(seg) < 2:
+                    continue
+                td = self._build_stream_table(seg, min_rows=2)
+                if td.n_rows >= 2 and td.n_cols >= 2:
+                    out.append(td)
+                continue
             td = self._build_stream_table(seg)
             if td.n_rows >= 1 and td.n_cols >= 2:
                 out.append(td)
@@ -212,14 +237,14 @@ class PdfplumberEngine(_BaseEngine):
                        cur[0]["x0"], cur[-1]["x1"]))
         return fields
 
-    def _build_stream_table(self, seg) -> TableData:
+    def _build_stream_table(self, seg, min_rows: int = 3) -> TableData:
         """由多字段行段重建表格网格。
 
         误检防线（真实文档强化，2026-08 验证）：
         1) 列数范围 [2, 12]——双栏文本/公式会被 18+ 列聚类排除；
         2) 列对齐一致性——每行的每个字段起点必须命中列边界聚类（±6pt）；
         3) 行字段一致性——每行占满全部列（众数列数 == 列数）；
-        4) 有效行 ≥3。
+        4) 有效行 ≥min_rows（默认 3；表头关键词场景放宽为 2）。
         """
         from collections import Counter
 
@@ -248,7 +273,7 @@ class PdfplumberEngine(_BaseEngine):
                 hits.append(min(cand, key=lambda i: abs(x0 - col_x[i])))
             if ok:
                 valid_rows.append((key, fs, ws, hits))
-        if len(valid_rows) < 3:
+        if len(valid_rows) < min_rows:
             return TableData()
 
         # 3) 行字段一致性：众数"唯一列数"必须等于列数（每行占满全部列）

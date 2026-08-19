@@ -207,6 +207,56 @@ def extract_requirement_items(text: str) -> list[RequirementItem]:
         # 问题5: 去除条目号所在行尾随的标题(与条目号同行的简短标题)
         content = _drop_entry_title_line(content)
 
+        # ============================================================
+        # 问题修复(2026-08-19): 跳过追踪关系表/表格行噪声内容
+        # ============================================================
+        # 文档末尾的"需求追踪关系表"中的行(如
+        #   <RPS-SYS-RQ-010>  <UR-SYS-005>  本条目追踪用户需求
+        # )会被 ID 正则误认为条目出现。特征:
+        #   - 内容行内嵌另一个 ID(两个 <xxx> 相邻, 表格行跨列)
+        #   - 或内容为极短的"引用说明"("本条目追踪用户需求"、"追踪关系"等)
+        # 若 content 命中, 则该出现是追踪表行, 不应作为条目正文。
+        _TRACE_ROW_NOISE_RE = re.compile(
+            r'^<[^>]+>[ \t]*<[^>]+>'           # 行内嵌另一个 ID(表格行两列 ID)
+            r'|'
+            r'^(?:追踪|引用|对应|来源|上游|关联)[\u4e00-\u9fff]{0,20}'
+            r'(?:用户需求|系统需求|上游文件|本条|该条|来源文件)',
+        )
+        # 追踪表行特征(含跨行断开的表格单元格):
+        #   1) 内容中含另一个 ID 引用(如 <SyRS005>), 说明是追踪表映射行;
+        #   2) 极短(<=30字符)且不含句末标点(表格行摘要, 可能跨行断开);
+        #   3) 以"附表/表N/序号/本文档中的设计标志号"等表头词开头。
+        _has_other_id = bool(re.search(r'<[^>]+>', content))
+        _looks_like_table = bool(re.match(
+            r'^\s*(附表|表\s*\d+|序号|本文档中的|需求标志|追踪|编号)\s*',
+            content,
+        ))
+        _short_no_end = (
+            len(content) <= 30
+            and not re.search(r'[。；！？]$', content)
+        )
+        _is_trace_row = (
+            bool(_TRACE_ROW_NOISE_RE.match(content))
+            or _has_other_id
+            or _looks_like_table
+            or _short_no_end
+        )
+        if _is_trace_row:
+            continue
+
+        # 追踪表表头截断: 正文条目内容若夹带"附表N/序号/本文档中的设计
+        # 标志号"等追踪表表头(下一个ID是追踪表行导致切片延伸到表头),
+        # 在表头位置截断, 只保留真正的正文。
+        _TOC_TABLE_HEADER_RE = re.compile(
+            r'(?m)^\s*(附表\s*\d*[^\n]*需求追踪[表合]?|附表\s*\d*[ \t]*|'
+            r'需求追踪[表合]?[ \t]*|'
+            r'序号[ \t]*|本文档中的[^\n]*|需求标志[^\n]*|'
+            r'对应关系[表]?[ \t]*|追踪[^\n]*表[^\n]*)\s*$'
+        )
+        _table_head_m = _TOC_TABLE_HEADER_RE.search(content)
+        if _table_head_m:
+            content = content[:_table_head_m.start()].rstrip()
+
         # 去重合并: 同一 ID 多次出现(表格型文档的特征, 如 RPS 功能描述表)
         # 表格型文档中, 同一 ID 在连续行中重复出现, 每行是需求的一个描述片段
         # 策略: 同一 ID 的所有出现内容合并(去重行), 拼成完整需求描述
@@ -284,6 +334,33 @@ def extract_sections(text: str) -> list[SectionItem]:
     )
 
     matches = list(section_pattern.finditer(text))
+
+    # ============================================================
+    # 问题修复(2026-08-19): 排除目录(TOC)条目被误当作章节提取
+    # ============================================================
+    # 带目录的文档中, 目录页每一行(如 "3.2 系统和设备分级 .... 15")
+    # 命中章节正则, 目录条目会进入 ContentMap, 与正文同名章节形成
+    # 重复/覆盖。目录条目的特征:
+    #   - 行尾带页码(阿拉伯数字, 如 "12" / "2-3")
+    #   - 标题与页码之间常有 "....." 点线引导符或连续空格
+    #   - 标题本身很短(通常<=40字符)
+    # 检测到这些特征时, 剔除该候选章节。
+    if matches:
+        _TOC_LINE_RE = re.compile(
+            r'^(?:\d+(?:\.\d+)*\.?)\s*'        # 章节号
+            r'[\u4e00-\u9fffA-Za-z].{0,40}?'   # 短标题
+            r'(?:(?:\.{2,}|[ \t]{2,})'         # 点线引导符 或 连续空格
+            r'\s*\d+(?:-\d+)?[ \t]*)$',        # 尾部页码
+            re.MULTILINE
+        )
+        filtered = []
+        for m in matches:
+            # 该候选所在整行: 从匹配起点到行尾(不含换行符)
+            line = text[m.start():m.end()].rstrip('\n')
+            if _TOC_LINE_RE.match(line):
+                continue  # 目录条目: 跳过
+            filtered.append(m)
+        matches = filtered
 
     if not matches:
         return sections
@@ -454,7 +531,20 @@ def _drop_entry_title_line(text: str) -> str:
     if (len(first) <= 15
             and not any(p in first for p in _TITLE_DROP_PUNCT)
             and not first.endswith('：') and not first.endswith(':')):
-        return '\n'.join(lines[1:]).strip()
+        # 修复(2026-08-19, ICADS009 匹配回归): 仅丢弃"通用章节类标题",
+        # 保留"条目专有名词标题"。原实现删除所有 <=15 字的短首行, 导致
+        # <FZSDCS34-ICADS009>机柜门开状态 中的"机柜门开状态"(条目名,
+        # 与上游 <DCS-SyRS005> 的 "-机柜门开;" 匹配关键)被误删, 造成
+        # 下游内容缺失关键短语, 微块匹配从 GREEN 退化。
+        import re as _re
+        _has_section_no = _re.match(r'^\d+(\.\d+)*[\.、]?\s*', first)
+        _generic_words = ('概述', '要求', '功能', '描述', '简介', '综述',
+                          '规则', '准则', '说明', '意义', '目的', '范围',
+                          '组成', '结构', '原理', '故障诊断', '模块类',
+                          '系统级', '总体', '通用')
+        _is_generic = any(w in first for w in _generic_words)
+        if _has_section_no or _is_generic:
+            return '\n'.join(lines[1:]).strip()
     return text
 
 

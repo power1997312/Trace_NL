@@ -618,6 +618,51 @@ def _make_rich_text_cell(runs, default_text=''):
     return CellRichText(*blocks)
 
 
+def _estimate_visible_lines(text, col_width, font_size=CONTENT_FONT_SIZE):
+    """估算文本在指定列宽(Excel字符单位)下 wrap_text 后的可见行数。
+
+    Excel 列宽 1 单位 ≈ 1 个半角字符宽度; 全角/CJK 字符按 2 单位计。
+    wrap_text 时文本按列宽自动折行, 显式换行(\\n)强制分段。
+    """
+    if not text:
+        return 1
+    chars_per_line = max(4.0, col_width - 2.0)
+    total = 0
+    for seg in str(text).split('\n'):
+        if not seg:
+            total += 1
+            continue
+        w = 0.0
+        for ch in seg:
+            w += 2.0 if ord(ch) > 0x7F else 1.0
+        total += max(1, -(-int(w) // int(chars_per_line)))
+    return max(1, total)
+
+
+def _set_row_height(ws, row, texts_with_widths, min_height=15.0,
+                    line_height=17.0, pad=4.0):
+    """根据单元格内容估算并设置行高, 使 wrap_text 多行可见。"""
+    max_lines = 1
+    for text, col_width in texts_with_widths:
+        if text:
+            max_lines = max(max_lines, _estimate_visible_lines(text, col_width))
+    ws.row_dimensions[row].height = max(min_height, max_lines * line_height + pad)
+
+
+def _set_merged_row_heights(ws, first_row, last_row, texts_with_widths,
+                            min_height=15.0, line_height=17.0, pad=4.0):
+    """合并单元格区域的行高按行数平均分摊。"""
+    max_lines = 1
+    for text, col_width in texts_with_widths:
+        if text:
+            max_lines = max(max_lines, _estimate_visible_lines(text, col_width))
+    total_height = max(min_height, max_lines * line_height + pad)
+    n = max(1, last_row - first_row + 1)
+    per_row = max(min_height, total_height / n)
+    for r in range(first_row, last_row + 1):
+        ws.row_dimensions[r].height = per_row
+
+
 def _set_cell(ws, row, col, value, font=None):
     """设置单元格值和样式"""
     cell = ws.cell(row=row, column=col, value=value)
@@ -714,6 +759,12 @@ def generate_forward_excel(forward_data_by_doc, output_path, sys_req_doc_name=''
                     ws.cell(row=row_num, column=6).alignment = _DATA_ALIGNMENT
                     ws.cell(row=row_num, column=6).border = _THIN_BORDER
 
+                    # 数据行行高(临时按当前行内容估算, 合并组在下方统一分摊覆盖)
+                    _set_row_height(ws, row_num, [
+                        (data['up_text'], 55),
+                        (sr.get('ds_text', ''), 55),
+                    ])
+
                     row_num += 1
 
                 end_row = row_num - 1
@@ -725,6 +776,10 @@ def generate_forward_excel(forward_data_by_doc, output_path, sys_req_doc_name=''
                             start_row=start_row, start_column=col,
                             end_row=end_row, end_column=col,
                         )
+                    # 合并组行高: 以上游内容为基准, 按行数分摊
+                    _set_merged_row_heights(ws, start_row, end_row, [
+                        (data['up_text'], 55),
+                    ])
 
                 seq += 1
             else:
@@ -743,6 +798,11 @@ def generate_forward_excel(forward_data_by_doc, output_path, sys_req_doc_name=''
                 _set_cell(ws, row_num, 4, 'NA', na_font)
                 _set_cell(ws, row_num, 5, 'NA', na_font)
                 _set_cell(ws, row_num, 6, 'NA', na_font)
+
+                # 数据行行高: 上游内容按换行/列宽估算
+                _set_row_height(ws, row_num, [
+                    (data['up_text'], 55),
+                ])
 
                 row_num += 1
                 seq += 1

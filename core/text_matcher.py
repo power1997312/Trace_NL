@@ -1825,7 +1825,28 @@ def _blocks_to_runs_subphrase(
                     category=runs[-1].category,
                 )
 
-    return runs
+    # 关键修复（2026-08-19, DCS-SyRS005/3.2.2.2 标绿内容合并为一行问题）：
+    # 子短语GREEN会把换行符拆到独立的BLACK run（如 <t>\n</t>、<t>\n-</t>），
+    # WPS/Excel 渲染富文本时对"纯换行run"的换行可能失效，导致标绿的多行
+    # 内容被合并成一行。此处把每个 run 开头的前导换行符剥离并合并到前一个
+    # run 的末尾，使换行符附着在文本 run 内部（与整段单run时的行为一致）。
+    merged_runs = []
+    for run in runs:
+        if merged_runs and run.text.startswith('\n'):
+            n = 0
+            while n < len(run.text) and run.text[n] == '\n':
+                n += 1
+            leading = '\n' * n
+            rest = run.text[n:]
+            merged_runs[-1] = TextRun(
+                text=merged_runs[-1].text + leading,
+                category=merged_runs[-1].category,
+            )
+            if rest:
+                merged_runs.append(TextRun(text=rest, category=run.category))
+        else:
+            merged_runs.append(run)
+    return merged_runs
 
 
 def _blocks_to_runs_standard_safe(
