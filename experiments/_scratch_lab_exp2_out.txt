@@ -1,0 +1,135 @@
+﻿python : D:\Program Files\Pyhon 3.10\lib\site-packages\torch\cuda\__init__.py:287: UserWarning: 
+At line:15 char:1930
++ ... odules\@vscode\ripgrep\bin'; python _scratch_lab_exp2.py 2>&1 | Out-F ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Program File...: UserWarning: :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+NVIDIA GeForce RTX 5060 Laptop GPU with CUDA capability sm_120 is not compatible with the current PyTorch installation.
+The current PyTorch install supports CUDA capabilities sm_37 sm_50 sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_90 compute_37
+.
+If you want to use the NVIDIA GeForce RTX 5060 Laptop GPU GPU with PyTorch, please check the instructions at https://py
+torch.org/get-started/locally/
+
+  warnings.warn(
+
+Loading weights:   0%|          | 0/71 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 71/71 [00:00<00:00, 11778.49it/s]
+编码完成 (10.3s)
+
+====================================================================================================
+流水线 A
+====================================================================================================
+包含图: 6 个章节包含条目 (共13条包含边)
+base idf=f1 (无折叠)            n=16 MRR=0.612 | top1=6/16(38%) | top3=13/16(81%) | top5=13/16(81%)
+base idf=f1 +折叠              n=16 MRR=0.705 | top1=9/16(56%) | top3=13/16(81%) | top5=13/16(81%)
+    MISS <DCS-SyRS006> -> ('DCS设备技术规格书', '3.2.1') (gold_unit=3.2.1 系统和设备分级, rank=6) top3: <RPS-SYS-RQ-010>(0.53) 5 结构要求(0.54) 1 概述(0.48)
+    MISS <DCS-SyRS008> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=5) top3: 5 结构要求(0.55) 4 RPSDE功能描述(0.51) <RPS-SYS-RQ-008>(0.51)
+    MISS <DCS-SyRS009> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=6) top3: <RPS-SYS-RQ-012>(0.56) 5 结构要求(0.59) 4 RPSDE功能描述(0.53)
+base idf=f1 +折叠+降权0.85       n=16 MRR=0.755 | top1=10/16(62%) | top3=13/16(81%) | top5=14/16(88%)
+    MISS <DCS-SyRS006> -> ('DCS设备技术规格书', '3.2.1') (gold_unit=3.2.1 系统和设备分级, rank=5) top3: <RPS-SYS-RQ-010>(0.53) 1 概述(0.48) <RPS-SYS-RQ-005>(0.47)
+    MISS <DCS-SyRS009> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=5) top3: <RPS-SYS-RQ-012>(0.56) <RPS-SYS-RQ-008>(0.51) 5 结构要求(0.50)
+base idf=R (无折叠)             n=16 MRR=0.612 | top1=6/16(38%) | top3=13/16(81%) | top5=13/16(81%)
+base idf=R +折叠               n=16 MRR=0.705 | top1=9/16(56%) | top3=13/16(81%) | top5=13/16(81%)
+    MISS <DCS-SyRS006> -> ('DCS设备技术规格书', '3.2.1') (gold_unit=3.2.1 系统和设备分级, rank=6) top3: <RPS-SYS-RQ-010>(0.53) 5 结构要求(0.54) 1 概述(0.48)
+    MISS <DCS-SyRS008> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=5) top3: 5 结构要求(0.55) 4 RPSDE功能描述(0.51) <RPS-SYS-RQ-008>(0.51)
+    MISS <DCS-SyRS009> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=6) top3: <RPS-SYS-RQ-012>(0.56) 5 结构要求(0.59) 4 RPSDE功能描述(0.53)
+base idf=R +折叠+降权0.85        n=16 MRR=0.755 | top1=10/16(62%) | top3=13/16(81%) | top5=14/16(88%)
+    MISS <DCS-SyRS006> -> ('DCS设备技术规格书', '3.2.1') (gold_unit=3.2.1 系统和设备分级, rank=5) top3: <RPS-SYS-RQ-010>(0.53) 1 概述(0.48) <RPS-SYS-RQ-005>(0.48)
+    MISS <DCS-SyRS009> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=5) top3: <RPS-SYS-RQ-012>(0.56) <RPS-SYS-RQ-008>(0.51) 5 结构要求(0.50)
+base idf=max (无折叠)           n=16 MRR=0.580 | top1=5/16(31%) | top3=13/16(81%) | top5=13/16(81%)
+base idf=max +折叠             n=16 MRR=0.705 | top1=9/16(56%) | top3=13/16(81%) | top5=13/16(81%)
+    MISS <DCS-SyRS006> -> ('DCS设备技术规格书', '3.2.1') (gold_unit=3.2.1 系统和设备分级, rank=6) top3: <RPS-SYS-RQ-010>(0.54) 5 结构要求(0.58) 1 概述(0.48)
+    MISS <DCS-SyRS008> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=5) top3: 5 结构要求(0.58) 4 RPSDE功能描述(0.51) <RPS-SYS-RQ-008>(0.51)
+    MISS <DCS-SyRS009> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=6) top3: <RPS-SYS-RQ-012>(0.62) 5 结构要求(0.65) 4 RPSDE功能描述(0.53)
+base idf=max +折叠+降权0.85      n=16 MRR=0.742 | top1=10/16(62%) | top3=13/16(81%) | top5=14/16(88%)
+    MISS <DCS-SyRS006> -> ('DCS设备技术规格书', '3.2.1') (gold_unit=3.2.1 系统和设备分级, rank=5) top3: <RPS-SYS-RQ-010>(0.54) 5 结构要求(0.49) 1 概述(0.48)
+    MISS <DCS-SyRS009> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=5) top3: <RPS-SYS-RQ-012>(0.62) 5 结构要求(0.55) <RPS-SYS-RQ-008>(0.51)
+
+====================================================================================================
+流水线 B1
+====================================================================================================
+包含图: 5 个章节包含条目 (共14条包含边)
+base idf=f1 (无折叠)            n=20 MRR=0.445 | top1=7/20(35%) | top3=8/20(40%) | top5=11/20(55%)
+base idf=f1 +折叠              n=20 MRR=0.470 | top1=8/20(40%) | top3=8/20(40%) | top5=11/20(55%)
+    MISS <FZSDCS34-OTS006> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=18) top3: <DCS-SyRS009>(0.56) <DCS-SyRS008>(0.52) 48 V直流电源系统紧急操作台(0.52)
+    MISS <FZSDCS34-OTS008> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=9) top3: <DCS-SyRS007>(0.53) 3.3 系统架构设计要求(0.54) 3.4.1 紧急停堆系统（RTS）(0.52)
+    MISS <FZSDCS34-OTS016> -> <FZSDCS34-SyRS004> (gold_unit=<DCS-SyRS004>, rank=15) top3: 3.3 系统架构设计要求(0.53) <DCS-SyRS007>(0.51) 3.4.1 紧急停堆系统（RTS）(0.51)
+    MISS <FZSDCS34-OTS018> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=11) top3: <DCS-SyRS014>(0.55) 3.4.2 专设安全设施驱动系统（ESFAS(0.55) <DCS-SyRS006>(0.51)
+    MISS <FZSDCS34-OTS020> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=7) top3: <DCS-SyRS007>(0.47) 3.3 系统架构设计要求(0.50) 3.4.1 紧急停堆系统（RTS）(0.49)
+    MISS <FZSDCS34-OTS026> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=11) top3: <DCS-SyRS008>(0.47) 1.5 其它约定(0.46) 3.2 系统的功能要求(0.45)
+    MISS <FZSDCS34-OTS053> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=15) top3: 3.4.1 紧急停堆系统（RTS）(0.50) <DCS-SyRS008>(0.49) <DCS-SyRS007>(0.48)
+    MISS <FZSDCS34-OTS054> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=16) top3: <DCS-SyRS014>(0.53) 3.4.2 专设安全设施驱动系统（ESFAS(0.53) 3.4.1 紧急停堆系统（RTS）(0.50)
+    MISS <FZSDCS34-OTS056> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=15) top3: <DCS-SyRS008>(0.54) <DCS-SyRS009>(0.53) <DCS-SyRS007>(0.53)
+base idf=f1 +折叠+降权0.85       n=20 MRR=0.512 | top1=8/20(40%) | top3=11/20(55%) | top5=11/20(55%)
+    MISS <FZSDCS34-OTS006> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=14) top3: <DCS-SyRS009>(0.56) <DCS-SyRS008>(0.52) 48 V直流电源系统紧急操作台(0.52)
+    MISS <FZSDCS34-OTS008> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=7) top3: <DCS-SyRS007>(0.53) <DCS-SyRS011>(0.52) <DCS-SyRS013>(0.48)
+    MISS <FZSDCS34-OTS016> -> <FZSDCS34-SyRS004> (gold_unit=<DCS-SyRS004>, rank=11) top3: <DCS-SyRS007>(0.51) <DCS-SyRS009>(0.49) <DCS-SyRS011>(0.49)
+    MISS <FZSDCS34-OTS018> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=7) top3: <DCS-SyRS014>(0.55) <DCS-SyRS006>(0.51) <DCS-SyRS008>(0.49)
+    MISS <FZSDCS34-OTS020> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: <DCS-SyRS007>(0.47) <DCS-SyRS010>(0.46) <DCS-SyRS008>(0.44)
+    MISS <FZSDCS34-OTS026> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: <DCS-SyRS008>(0.47) 1.5 其它约定(0.46) <DCS-SyRS004>(0.45)
+    MISS <FZSDCS34-OTS053> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=12) top3: <DCS-SyRS008>(0.49) <DCS-SyRS007>(0.48) <DCS-SyRS014>(0.48)
+    MISS <FZSDCS34-OTS054> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=13) top3: <DCS-SyRS014>(0.53) <DCS-SyRS009>(0.49) <DCS-SyRS007>(0.48)
+    MISS <FZSDCS34-OTS056> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=13) top3: <DCS-SyRS008>(0.54) <DCS-SyRS009>(0.53) <DCS-SyRS007>(0.53)
+base idf=R (无折叠)             n=20 MRR=0.470 | top1=8/20(40%) | top3=8/20(40%) | top5=11/20(55%)
+base idf=R +折叠               n=20 MRR=0.470 | top1=8/20(40%) | top3=8/20(40%) | top5=11/20(55%)
+    MISS <FZSDCS34-OTS006> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=18) top3: <DCS-SyRS009>(0.56) <DCS-SyRS008>(0.52) 48 V直流电源系统紧急操作台(0.51)
+    MISS <FZSDCS34-OTS008> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=9) top3: <DCS-SyRS007>(0.53) 3.3 系统架构设计要求(0.53) 3.4.1 紧急停堆系统（RTS）(0.52)
+    MISS <FZSDCS34-OTS016> -> <FZSDCS34-SyRS004> (gold_unit=<DCS-SyRS004>, rank=15) top3: 3.3 系统架构设计要求(0.53) <DCS-SyRS007>(0.51) 3.4.1 紧急停堆系统（RTS）(0.51)
+    MISS <FZSDCS34-OTS018> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=10) top3: <DCS-SyRS014>(0.61) 3.4.2 专设安全设施驱动系统（ESFAS(0.61) <DCS-SyRS006>(0.52)
+    MISS <FZSDCS34-OTS020> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=7) top3: <DCS-SyRS007>(0.47) 3.3 系统架构设计要求(0.50) 3.4.1 紧急停堆系统（RTS）(0.49)
+    MISS <FZSDCS34-OTS026> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=11) top3: <DCS-SyRS008>(0.47) 1.5 其它约定(0.46) 3.2 系统的功能要求(0.45)
+    MISS <FZSDCS34-OTS053> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=15) top3: 3.4.1 紧急停堆系统（RTS）(0.50) <DCS-SyRS007>(0.49) <DCS-SyRS008>(0.49)
+    MISS <FZSDCS34-OTS054> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=16) top3: <DCS-SyRS014>(0.53) 3.4.2 专设安全设施驱动系统（ESFAS(0.53) 3.4.1 紧急停堆系统（RTS）(0.50)
+    MISS <FZSDCS34-OTS056> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=14) top3: <DCS-SyRS008>(0.55) <DCS-SyRS007>(0.54) <DCS-SyRS009>(0.53)
+base idf=R +折叠+降权0.85        n=20 MRR=0.513 | top1=8/20(40%) | top3=11/20(55%) | top5=11/20(55%)
+    MISS <FZSDCS34-OTS006> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=14) top3: <DCS-SyRS009>(0.56) <DCS-SyRS008>(0.52) 48 V直流电源系统紧急操作台(0.51)
+    MISS <FZSDCS34-OTS008> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=7) top3: <DCS-SyRS007>(0.53) <DCS-SyRS011>(0.52) <DCS-SyRS013>(0.48)
+    MISS <FZSDCS34-OTS016> -> <FZSDCS34-SyRS004> (gold_unit=<DCS-SyRS004>, rank=11) top3: <DCS-SyRS007>(0.51) <DCS-SyRS009>(0.49) <DCS-SyRS011>(0.49)
+    MISS <FZSDCS34-OTS018> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=7) top3: <DCS-SyRS014>(0.61) 3.4.2 专设安全设施驱动系统（ESFAS(0.52) <DCS-SyRS006>(0.52)
+    MISS <FZSDCS34-OTS020> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: <DCS-SyRS007>(0.47) <DCS-SyRS010>(0.46) <DCS-SyRS008>(0.44)
+    MISS <FZSDCS34-OTS026> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: <DCS-SyRS008>(0.47) 1.5 其它约定(0.46) <DCS-SyRS004>(0.45)
+    MISS <FZSDCS34-OTS053> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=12) top3: <DCS-SyRS007>(0.49) <DCS-SyRS008>(0.49) <DCS-SyRS010>(0.48)
+    MISS <FZSDCS34-OTS054> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=13) top3: <DCS-SyRS014>(0.53) <DCS-SyRS009>(0.49) <DCS-SyRS007>(0.49)
+    MISS <FZSDCS34-OTS056> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=11) top3: <DCS-SyRS008>(0.55) <DCS-SyRS007>(0.54) <DCS-SyRS009>(0.53)
+base idf=max (无折叠)           n=20 MRR=0.395 | top1=5/20(25%) | top3=8/20(40%) | top5=11/20(55%)
+base idf=max +折叠             n=20 MRR=0.470 | top1=8/20(40%) | top3=8/20(40%) | top5=11/20(55%)
+    MISS <FZSDCS34-OTS006> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=18) top3: <DCS-SyRS009>(0.56) <DCS-SyRS008>(0.52) 48 V直流电源系统紧急操作台(0.52)
+    MISS <FZSDCS34-OTS008> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=9) top3: <DCS-SyRS007>(0.53) 3.3 系统架构设计要求(0.55) 3.4.1 紧急停堆系统（RTS）(0.53)
+    MISS <FZSDCS34-OTS016> -> <FZSDCS34-SyRS004> (gold_unit=<DCS-SyRS004>, rank=15) top3: 3.3 系统架构设计要求(0.53) <DCS-SyRS007>(0.51) 3.4.1 紧急停堆系统（RTS）(0.51)
+    MISS <FZSDCS34-OTS018> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=10) top3: <DCS-SyRS014>(0.61) 3.4.2 专设安全设施驱动系统（ESFAS(0.61) <DCS-SyRS006>(0.52)
+    MISS <FZSDCS34-OTS020> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=7) top3: <DCS-SyRS007>(0.47) 3.3 系统架构设计要求(0.50) 3.4.1 紧急停堆系统（RTS）(0.49)
+    MISS <FZSDCS34-OTS026> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=11) top3: 1.5 其它约定(0.49) <DCS-SyRS008>(0.47) 3.2 系统的功能要求(0.45)
+    MISS <FZSDCS34-OTS053> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=15) top3: 3.4.1 紧急停堆系统（RTS）(0.50) <DCS-SyRS007>(0.49) <DCS-SyRS008>(0.49)
+    MISS <FZSDCS34-OTS054> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=16) top3: <DCS-SyRS014>(0.53) 3.4.2 专设安全设施驱动系统（ESFAS(0.53) 3.4.1 紧急停堆系统（RTS）(0.51)
+    MISS <FZSDCS34-OTS056> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=15) top3: <DCS-SyRS008>(0.55) <DCS-SyRS007>(0.54) <DCS-SyRS009>(0.53)
+base idf=max +折叠+降权0.85      n=20 MRR=0.512 | top1=8/20(40%) | top3=11/20(55%) | top5=11/20(55%)
+    MISS <FZSDCS34-OTS006> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=14) top3: <DCS-SyRS009>(0.56) <DCS-SyRS008>(0.52) 48 V直流电源系统紧急操作台(0.52)
+    MISS <FZSDCS34-OTS008> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=8) top3: <DCS-SyRS007>(0.53) <DCS-SyRS011>(0.52) 1.5 其它约定(0.48)
+    MISS <FZSDCS34-OTS016> -> <FZSDCS34-SyRS004> (gold_unit=<DCS-SyRS004>, rank=11) top3: <DCS-SyRS007>(0.51) <DCS-SyRS009>(0.49) 48 V直流电源系统紧急操作台(0.49)
+    MISS <FZSDCS34-OTS018> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=7) top3: <DCS-SyRS014>(0.61) 3.4.2 专设安全设施驱动系统（ESFAS(0.52) <DCS-SyRS006>(0.52)
+    MISS <FZSDCS34-OTS020> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: <DCS-SyRS007>(0.47) <DCS-SyRS010>(0.46) <DCS-SyRS008>(0.44)
+    MISS <FZSDCS34-OTS026> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: 1.5 其它约定(0.49) <DCS-SyRS008>(0.47) <DCS-SyRS004>(0.45)
+    MISS <FZSDCS34-OTS053> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=12) top3: <DCS-SyRS007>(0.49) <DCS-SyRS008>(0.49) <DCS-SyRS010>(0.48)
+    MISS <FZSDCS34-OTS054> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=13) top3: <DCS-SyRS014>(0.53) <DCS-SyRS009>(0.49) <DCS-SyRS007>(0.49)
+    MISS <FZSDCS34-OTS056> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=12) top3: <DCS-SyRS008>(0.55) <DCS-SyRS007>(0.54) <DCS-SyRS009>(0.53)
+
+====================================================================================================
+流水线 B2
+====================================================================================================
+包含图: 5 个章节包含条目 (共14条包含边)
+base idf=f1 (无折叠)            n=10 MRR=0.384 | top1=0/10(0%) | top3=8/10(80%) | top5=9/10(90%)
+base idf=f1 +折叠              n=10 MRR=0.634 | top1=5/10(50%) | top3=8/10(80%) | top5=9/10(90%)
+    MISS <FZSDCS34-ICADS007> -> <FZSDCS34-SyRS005> (gold_unit=<DCS-SyRS005>, rank=6) top3: 3.2 系统的功能要求(0.46) <DCS-SyRS013>(0.46) <DCS-SyRS008>(0.44)
+base idf=f1 +折叠+降权0.85       n=10 MRR=0.695 | top1=5/10(50%) | top3=8/10(80%) | top5=10/10(100%)
+base idf=R (无折叠)             n=10 MRR=0.384 | top1=0/10(0%) | top3=8/10(80%) | top5=9/10(90%)
+base idf=R +折叠               n=10 MRR=0.634 | top1=5/10(50%) | top3=8/10(80%) | top5=9/10(90%)
+    MISS <FZSDCS34-ICADS007> -> <FZSDCS34-SyRS005> (gold_unit=<DCS-SyRS005>, rank=6) top3: 3.2 系统的功能要求(0.46) <DCS-SyRS013>(0.46) <DCS-SyRS008>(0.44)
+base idf=R +折叠+降权0.85        n=10 MRR=0.695 | top1=5/10(50%) | top3=8/10(80%) | top5=10/10(100%)
+base idf=max (无折叠)           n=10 MRR=0.383 | top1=0/10(0%) | top3=8/10(80%) | top5=9/10(90%)
+base idf=max +折叠             n=10 MRR=0.632 | top1=5/10(50%) | top3=8/10(80%) | top5=9/10(90%)
+    MISS <FZSDCS34-ICADS007> -> <FZSDCS34-SyRS005> (gold_unit=<DCS-SyRS005>, rank=7) top3: 3.2 系统的功能要求(0.46) <DCS-SyRS013>(0.46) <DCS-SyRS008>(0.44)
+base idf=max +折叠+降权0.85      n=10 MRR=0.692 | top1=5/10(50%) | top3=8/10(80%) | top5=9/10(90%)
+    MISS <FZSDCS34-ICADS007> -> <FZSDCS34-SyRS005> (gold_unit=<DCS-SyRS005>, rank=5) top3: <DCS-SyRS013>(0.46) <DCS-SyRS008>(0.44) 3.2 系统的功能要求(0.39)
+
+总耗时 11.1s

@@ -1,0 +1,98 @@
+﻿python : D:\Program Files\Pyhon 3.10\lib\site-packages\torch\cuda\__init__.py:287: UserWarning: 
+At line:15 char:1930
++ ... odules\@vscode\ripgrep\bin'; python _scratch_lab_exp6.py 2>&1 | Out-F ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Program File...: UserWarning: :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+NVIDIA GeForce RTX 5060 Laptop GPU with CUDA capability sm_120 is not compatible with the current PyTorch installation.
+The current PyTorch install supports CUDA capabilities sm_37 sm_50 sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_90 compute_37
+.
+If you want to use the NVIDIA GeForce RTX 5060 Laptop GPU GPU with PyTorch, please check the instructions at https://py
+torch.org/get-started/locally/
+
+  warnings.warn(
+
+Loading weights:   0%|          | 0/71 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 71/71 [00:00<00:00, 9451.73it/s]
+编码完成 (6.7s)
+
+====================================================================================================
+流水线 A  (权重 sem/con/idf/tf = (0.5, 0.2, 0.2, 0.1))
+====================================================================================================
+ theta margin maxrel |     精确率     召回率     F1 |     输出关系  UNTRACED  UNTRACED误报 ambiguous
+  0.40   0.05      3 |   46.4%   81.2%  0.591 |       28         0           0         4
+  0.45   0.05      3 |   46.4%   81.2%  0.591 |       28         0           0         4
+  0.50   0.05      3 |   54.2%   81.2%  0.650 |       24         0           0         4
+  0.55   0.05      3 |   70.6%   75.0%  0.727 |       17         2           2         3
+--- theta=0.50 逐条目决策 (★=main命中gold) ---
+  <DCS-SyRS001>            ★main=3.2.2.1 F-SC1级要求      (0.97)     次级:[] gold=['3.2.2.1 F-SC1级要求']
+  <DCS-SyRS002>             main=3.2.2.1 F-SC1级要求      (0.88) AMB 次级:[3.2.2.2 F-SC2级要求(0.83)] gold=['3.2.2.2 F-SC2级要求']
+  <DCS-SyRS003>             main=<RPS-SYS-RQ-006>      (0.58) AMB 次级:[3.2.2.2 F-SC2级要求(0.55) 1 概述(0.55)] gold=['3.2.2.2 F-SC2级要求']
+  <DCS-SyRS004>            ★main=<RPS-SYS-RQ-008>      (0.68)     次级:[4 RPSDE功能描述(0.61)] gold=['<RPS-SYS-RQ-008>']
+  <DCS-SyRS005>            ★main=<RPS-SYS-RQ-009>      (0.66) AMB 次级:[<RPS-SYS-RQ-008>(0.65) 4 RPSDE功能描述(0.64)] gold=['<RPS-SYS-RQ-008>', '<RPS-SYS-RQ-009>']
+  <DCS-SyRS006>            ★main=<RPS-SYS-RQ-010>      (0.55)     次级:[] gold=['3.2.1 系统和设备分级', '<RPS-SYS-RQ-010>']
+  <DCS-SyRS007>            ★main=<RPS-SYS-RQ-012>      (0.57)     次级:[5 结构要求(0.51) <RPS-SYS-RQ-013>(0.50)] gold=['<RPS-SYS-RQ-012>']
+  <DCS-SyRS008>             main=<RPS-SYS-RQ-008>      (0.52) AMB 次级:[] gold=['<RPS-SYS-RQ-010>']
+  <DCS-SyRS009>             main=<RPS-SYS-RQ-012>      (0.57)     次级:[<RPS-SYS-RQ-008>(0.52) 5 结构要求(0.51)] gold=['<RPS-SYS-RQ-010>']
+  <DCS-SyRS010>            ★main=<RPS-SYS-RQ-011>      (0.73)     次级:[] gold=['<RPS-SYS-RQ-011>']
+  <DCS-SyRS011>            ★main=<RPS-SYS-RQ-012>      (0.80)     次级:[] gold=['<RPS-SYS-RQ-012>']
+  <DCS-SyRS012>            ★main=<RPS-SYS-RQ-012>      (0.77)     次级:[] gold=['<RPS-SYS-RQ-012>']
+  <DCS-SyRS013>            ★main=<RPS-SYS-RQ-012>      (0.76)     次级:[] gold=['<RPS-SYS-RQ-012>']
+  <DCS-SyRS014>            ★main=<RPS-SYS-RQ-013>      (0.79)     次级:[] gold=['<RPS-SYS-RQ-013>']
+
+====================================================================================================
+流水线 B1  (权重 sem/con/idf/tf = (0.3, 0.2, 0.3, 0.2))
+====================================================================================================
+ theta margin maxrel |     精确率     召回率     F1 |     输出关系  UNTRACED  UNTRACED误报 ambiguous
+  0.40   0.05      3 |   50.0%   35.0%  0.412 |       14        11          10         1
+  0.45   0.05      3 |   60.0%   30.0%  0.400 |       10        13          11         0
+  0.50   0.05      3 |   57.1%   20.0%  0.296 |        7        16          14         0
+  0.55   0.05      3 |   66.7%   20.0%  0.308 |        6        17          14         0
+--- theta=0.50 逐条目决策 (★=main命中gold) ---
+  <FZSDCS34-OTS001>        ★main=<DCS-SyRS004>         (0.59)     次级:[] gold=['<DCS-SyRS004>']
+  <FZSDCS34-OTS002>        ★main=<DCS-SyRS005>         (0.57)     次级:[] gold=['<DCS-SyRS005>']
+  <FZSDCS34-OTS003>         main=1.5 其它约定              (0.53)     次级:[] gold=[]
+  <FZSDCS34-OTS004>        ★main=<DCS-SyRS006>         (0.75)     次级:[] gold=['<DCS-SyRS006>']
+  <FZSDCS34-OTS005>        UNTRACED  gold=[] top3:<DCS-SyRS009>(0.41) <DCS-SyRS007>(0.40) <DCS-SyRS011>(0.38)
+  <FZSDCS34-OTS006>        UNTRACED  gold=['<DCS-SyRS006>'] top3:<DCS-SyRS009>(0.40) <DCS-SyRS008>(0.36) 48 V直流电源系统紧急操作台(0.36)
+  <FZSDCS34-OTS008>        UNTRACED  gold=['<DCS-SyRS010>', '<DCS-SyRS011>'] top3:<DCS-SyRS007>(0.38) <DCS-SyRS011>(0.37) 3.3 系统架构设计要求(0.33)
+  <FZSDCS34-OTS009>        UNTRACED  gold=['<DCS-SyRS009>'] top3:<DCS-SyRS009>(0.34) <DCS-SyRS007>(0.31) <DCS-SyRS012>(0.31)
+  <FZSDCS34-OTS010>        UNTRACED  gold=['<DCS-SyRS010>'] top3:<DCS-SyRS010>(0.41) <DCS-SyRS007>(0.32) 3.4.1 紧急停堆系统（RTS）(0.31)
+  <FZSDCS34-OTS011>        UNTRACED  gold=['<DCS-SyRS003>'] top3:<DCS-SyRS007>(0.32) <DCS-SyRS003>(0.30) 48 V直流电源系统紧急操作台(0.29)
+  <FZSDCS34-OTS012>        ★main=<DCS-SyRS012>         (0.93)     次级:[] gold=['<DCS-SyRS012>']
+  <FZSDCS34-OTS016>        UNTRACED  gold=['<DCS-SyRS004>'] top3:<DCS-SyRS007>(0.36) <DCS-SyRS011>(0.33) <DCS-SyRS006>(0.33)
+  <FZSDCS34-OTS017>        UNTRACED  gold=['<DCS-SyRS014>'] top3:<DCS-SyRS014>(0.46) 3.4.2 专设安全设施驱动系统（ESF(0.39) <DCS-SyRS004>(0.35)
+  <FZSDCS34-OTS018>        UNTRACED  gold=['<DCS-SyRS010>'] top3:<DCS-SyRS014>(0.47) 3.4.2 专设安全设施驱动系统（ESF(0.40) <DCS-SyRS006>(0.37)
+  <FZSDCS34-OTS019>        UNTRACED  gold=['<DCS-SyRS010>'] top3:<DCS-SyRS010>(0.47) <DCS-SyRS014>(0.41) 3.4.2 专设安全设施驱动系统（ESF(0.35)
+  <FZSDCS34-OTS020>        UNTRACED  gold=['<DCS-SyRS003>'] top3:<DCS-SyRS007>(0.30) <DCS-SyRS010>(0.29) 3.3 系统架构设计要求(0.29)
+  <FZSDCS34-OTS021>         main=<DCS-SyRS014>         (0.71)     次级:[3.4.2 专设安全设施驱动系统（E(0.60)] gold=[]
+  <FZSDCS34-OTS026>        UNTRACED  gold=['<DCS-SyRS004>', '<DCS-SyRS003>'] top3:<DCS-SyRS008>(0.31) 1.5 其它约定(0.30) <DCS-SyRS004>(0.30)
+  <FZSDCS34-OTS051>        UNTRACED  gold=[] top3:<DCS-SyRS008>(0.34) <DCS-SyRS009>(0.32) <DCS-SyRS007>(0.32)
+  <FZSDCS34-OTS053>        UNTRACED  gold=['<DCS-SyRS006>'] top3:<DCS-SyRS010>(0.35) <DCS-SyRS008>(0.33) <DCS-SyRS007>(0.33)
+  <FZSDCS34-OTS054>        UNTRACED  gold=['<DCS-SyRS006>'] top3:<DCS-SyRS014>(0.37) <DCS-SyRS011>(0.35) <DCS-SyRS007>(0.33)
+  <FZSDCS34-OTS056>        UNTRACED  gold=['<DCS-SyRS006>'] top3:<DCS-SyRS007>(0.39) <DCS-SyRS008>(0.38) <DCS-SyRS009>(0.35)
+
+====================================================================================================
+流水线 B2  (权重 sem/con/idf/tf = (0.5, 0.2, 0.2, 0.1))
+====================================================================================================
+ theta margin maxrel |     精确率     召回率     F1 |     输出关系  UNTRACED  UNTRACED误报 ambiguous
+  0.40   0.05      3 |   20.0%   30.0%  0.240 |       15         4           3         4
+  0.45   0.05      3 |   33.3%   20.0%  0.250 |        6         6           5         3
+  0.50   0.05      3 |    0.0%    0.0%  0.000 |        0        12          10         0
+  0.55   0.05      3 |    0.0%    0.0%  0.000 |        0        12          10         0
+--- theta=0.50 逐条目决策 (★=main命中gold) ---
+  <FZSDCS34-ICADS001>      UNTRACED  gold=['<DCS-SyRS005>'] top3:48 V直流电源系统紧急操作台(0.45) 3.2 系统的功能要求(0.44) <DCS-SyRS012>(0.44)
+  <FZSDCS34-ICADS002>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS005>(0.48) 3.2 系统的功能要求(0.41) <DCS-SyRS011>(0.38)
+  <FZSDCS34-ICADS003>      UNTRACED  gold=[] top3:<DCS-SyRS005>(0.33) 1.5 其它约定(0.31) 48 V直流电源系统紧急操作台(0.30)
+  <FZSDCS34-ICADS004>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS005>(0.48) 3.2 系统的功能要求(0.41) 48 V直流电源系统紧急操作台(0.34)
+  <FZSDCS34-ICADS005>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS005>(0.37) 3.2 系统的功能要求(0.32) 1.3 缩略语(0.31)
+  <FZSDCS34-ICADS006>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS005>(0.34) 48 V直流电源系统紧急操作台(0.33) 1.5 其它约定(0.30)
+  <FZSDCS34-ICADS007>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS013>(0.47) <DCS-SyRS008>(0.45) 3.2 系统的功能要求(0.40)
+  <FZSDCS34-ICADS008>      UNTRACED  gold=['<DCS-SyRS005>'] top3:48 V直流电源系统紧急操作台(0.50) <DCS-SyRS005>(0.39) 1.5 其它约定(0.36)
+  <FZSDCS34-ICADS009>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS013>(0.45) <DCS-SyRS005>(0.41) 3.2 系统的功能要求(0.35)
+  <FZSDCS34-ICADS010>      UNTRACED  gold=[] top3:48 V直流电源系统紧急操作台(0.47) <DCS-SyRS011>(0.42) <DCS-SyRS010>(0.39)
+  <FZSDCS34-ICADS011>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS005>(0.38) 1.5 其它约定(0.35) 48 V直流电源系统紧急操作台(0.34)
+  <FZSDCS34-ICADS012>      UNTRACED  gold=['<DCS-SyRS005>'] top3:<DCS-SyRS008>(0.44) <DCS-SyRS005>(0.38) <DCS-SyRS011>(0.37)
+
+总耗时 7.0s

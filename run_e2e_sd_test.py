@@ -22,6 +22,11 @@ from core.excel_generator import generate_excel
 
 
 def main():
+    # === 0. 运行模式 (table / discover / hybrid), 默认 discover ===
+    mode = sys.argv[1] if len(sys.argv) > 1 else 'discover'
+    if mode not in ('table', 'discover', 'hybrid'):
+        print(f"[ERROR] 未知模式: {mode} (应为 table/discover/hybrid)"); return
+
     # === 1. 配置路径 ===
     design_dir = SYSTEM_DESIGN_DIR
     sys_req_dir = SYSTEM_REQUIREMENT_DIR
@@ -61,9 +66,9 @@ def main():
     print()
 
     # === 2. 构建逆向追踪矩阵 ===
-    print(">>> 构建逆向追踪矩阵（系统设计→系统需求）...")
+    print(f">>> 构建逆向追踪矩阵（系统设计→系统需求, 模式: {mode}）...")
     t0 = time.time()
-    matrix = build_backward_matrix_from_design(design_pdfs, sys_req_pdf)
+    matrix = build_backward_matrix_from_design(design_pdfs, sys_req_pdf, mode=mode)
     print(f"    完成: {len(matrix.rows)} 条关系 ({time.time()-t0:.1f}s)")
 
     # 检查上游内容填充情况
@@ -87,28 +92,45 @@ def main():
     verify_matrix(matrix)
     print(f"    完成 ({time.time()-t1:.1f}s)")
 
-    # 统计匹配结果
-    green = blue = black = 0
+    # === 3b. LLM 裁决(存疑/未溯源/hybrid干预行; 未配置API key时自动跳过) ===
+    from core.llm_adjudicator import adjudicate_matrix
+    adjudicate_matrix(matrix)
+
+    # 统计匹配结果: 整体类别行数 + 字符级着色占比(与Excel观感一致)
+    from collections import Counter
+    cat_counter = Counter()
+    g_chars = b_chars = k_chars = 0
     for r in matrix.rows:
-        if r.match_result:
-            cat = r.match_result.overall_category
-            if cat == MatchCategory.GREEN:
-                green += 1
-            elif cat == MatchCategory.BLUE:
-                blue += 1
+        mr = r.match_result
+        if not mr:
+            continue
+        cat_counter[mr.overall_category] += 1
+        for run in mr.downstream_runs:
+            n = len(run.text)
+            if run.category == MatchCategory.GREEN:
+                g_chars += n
+            elif run.category == MatchCategory.BLUE:
+                b_chars += n
             else:
-                black += 1
+                k_chars += n
     total = len(matrix.rows)
-    print(f"\n    匹配统计:")
-    print(f"    GREEN(完全一致): {green}/{total} ({green/total*100:.0f}%)")
-    print(f"    BLUE(语义匹配):  {blue}/{total} ({blue/total*100:.0f}%)")
-    print(f"    BLACK(未匹配):   {black}/{total} ({black/total*100:.0f}%)")
+    cg = cat_counter.get(MatchCategory.GREEN, 0)
+    cb = cat_counter.get(MatchCategory.BLUE, 0)
+    ck = cat_counter.get(MatchCategory.BLACK, 0)
+    csum = g_chars + b_chars + k_chars
+    print(f"\n    匹配统计(整体类别=行内最高微块类别, 非整行一致):")
+    print(f"    GREEN行(至少一段完全一致): {cg}/{total} ({cg/total*100:.0f}%)")
+    print(f"    BLUE行:                     {cb}/{total} ({cb/total*100:.0f}%)")
+    print(f"    BLACK行:                    {ck}/{total} ({ck/total*100:.0f}%)")
+    if csum:
+        print(f"    下游内容字符级着色: 绿 {g_chars/csum:.0%} | "
+              f"蓝 {b_chars/csum:.0%} | 黑 {k_chars/csum:.0%} (共{csum}字符)")
 
     # === 4. 生成逆向追踪矩阵Excel ===
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     output_path = make_output_path("追踪验证结果_系统设计.xlsx")
     print(f"\n>>> 生成逆向追踪矩阵Excel: {output_path}")
-    generate_excel(matrix, output_path, include_forward=False)
+    generate_excel(matrix, output_path)
     print(f"    完成!")
 
     # === 5. 生成正向追踪矩阵Excel（系统需求→系统设计） ===

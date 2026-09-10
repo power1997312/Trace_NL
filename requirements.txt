@@ -1,13 +1,19 @@
-# 追踪验证系统依赖
-# 已有: torch, transformers, pdfplumber, PyMuPDF, openpyxl, pandas, numpy, scikit-learn
-streamlit>=1.30.0
+# 追踪验证系统依赖 (Python >= 3.10)
+# 说明: 版本为本机验证过的下限, 环境复现参考; scipy 缺失时匈牙利匹配会
+# 静默回退贪心算法(结果可能不同), requests 缺失时 LLM 裁决器不可用。
 
-# PDF 结构化解析新模块 (pdfparser/) 依赖
-# 说明: 本机已安装(版本校验于 2026-08-17), 保留此处供环境复现参考
-# PyMuPDF>=1.24.0
+streamlit>=1.30.0        # Web 界面
+torch>=2.0               # 模型推理 (bge-small-zh / Erlangshen NLI)
+transformers>=4.36       # AutoModel / AutoTokenizer
+PyMuPDF>=1.24.0          # legacy 正文提取引擎 (fitz)
+pdfplumber>=0.11.0       # legacy 追踪表提取引擎
+openpyxl>=3.1            # Excel 输出 (CellRichText 富文本着色需 >= 3.1)
+pandas>=2.0
+numpy>=1.24
+scipy>=1.10              # 匈牙利算法 linear_sum_assignment
+requests>=2.28           # LLM 裁决器 OpenAI 兼容 API 调用
+
+# pdfparser/ 新模块(五层管道)的补充依赖(本机已装, 按需启用):
 # pdfminer.six>=20231228
-# pdfplumber>=0.11.0
-# pandas>=2.0
-# numpy>=1.24
 # opencv-python-headless>=4.8
 # 可选: camelot-py + Ghostscript (启用 camelot 高准确率表格引擎)

@@ -18,7 +18,7 @@ import threading
 from collections import OrderedDict
 from typing import Optional
 
-from config import ITEM_ID_REGEX
+from config import ITEM_ID_REGEX, PDF_BACKEND
 
 # 中间产物 dump(便于排查解析/提取问题)
 from core.debug_dump import (
@@ -74,14 +74,18 @@ try:
 except ImportError:
     _NEW_PARSER_AVAILABLE = False
 
-# 后端选择
-_BACKEND = os.environ.get("TRACE_NL_PDF_BACKEND", "auto")
+# 后端选择(单一事实来源: config.PDF_BACKEND, 其初值读自 TRACE_NL_PDF_BACKEND 环境变量)
+_BACKEND = PDF_BACKEND
 
 # 新模块解析结果缓存(DocumentResult + PageText 双层缓存)
 _CACHE_MAX_DOCS = 24
 _cache_lock = threading.Lock()
 _result_cache: OrderedDict = OrderedDict()    # pdf指纹 -> DocumentResult
 _pagetext_cache: OrderedDict = OrderedDict()   # pdf指纹 -> list[PageText]
+# 显式失败标记缓存(扫描件/解析异常): 指纹 -> 失败原因。
+# _cache_get 无法区分"缓存了None"与"未缓存", 失败单独存,
+# 避免每次调用都重付一遍完整的失败解析代价。
+_fail_cache: OrderedDict = OrderedDict()
 
 
 def _use_new_parser() -> bool:
@@ -180,6 +184,63 @@ def _clean_pua(text: str) -> str:
 
 
 _ListMark = re.compile(r'^\s*([-•●·○■□►◆\-])\s*$')
+
+# 跨页重复行过滤(页眉页脚安全网)阈值:
+# 短行在 >= max(3, 页数×比例) 页上原样出现 且 跨度覆盖文档首尾 -> 判为页眉页脚
+_HF_REPEAT_RATIO = 0.35
+_HF_REPEAT_MIN_PAGES = 3
+_HF_SPAN_RATIO = 0.7
+# 保护形态: 列表项标记开头 / 条目ID / 句末标点结尾的完整句子(正文特征)
+_LIST_ITEM_PREFIX = re.compile(
+    r'^\s*(?:[-•●·○■□►◆]\s*|\d+[)）.]\s*|[a-zA-Z][)）]\s*)')
+
+
+def _strip_cross_page_repeats(pages_dict: dict[int, list[str]]) -> None:
+    """
+    文本级跨页重复行过滤 — 页眉页脚识别的安全网(就地修改)。
+
+    独立于新解析器的块分类与坐标信息: 内网文档常见"独立成行的文档名/
+    公司名"页眉, 若行级检测因坐标漂移(>20pt)或长度(>60字符)未命中,
+    该行会在每页正文中原样重复。此类"在大量页面上原样出现的短行"几乎
+    必为页眉页脚装饰, 按以下保护规则过滤:
+
+    - 长度 <=60 字符, 非纯符号, 非列表项开头, 不含条目ID;
+    - 不以句末标点结尾(页眉页脚极少是完整句子);
+    - 出现页数 >= max(3, 页数×0.35) 且 页码跨度 >= 文档长度70%
+      (真页眉从文档头贯穿到尾; 正文重复短语通常只局部聚集)。
+    """
+    n = len(pages_dict)
+    if n < _HF_REPEAT_MIN_PAGES:
+        return
+
+    where: dict[str, list[int]] = {}
+    for pno, lines in pages_dict.items():
+        seen = set()
+        for ln in lines:
+            t = ln.strip()
+            if not t or len(t) > 60 or t in seen:
+                continue
+            if _ListMark.match(t):
+                continue
+            if _LIST_ITEM_PREFIX.match(t):
+                continue
+            if re.search(ITEM_ID_REGEX, t):
+                continue
+            if t[-1] in '。！？；，、':
+                continue
+            seen.add(t)
+            where.setdefault(t, []).append(pno)
+
+    thr = max(_HF_REPEAT_MIN_PAGES, int(n * _HF_REPEAT_RATIO))
+    span_need = max(1, int(n * _HF_SPAN_RATIO))
+    hf_texts = {t for t, pnos in where.items()
+                if len(pnos) >= thr and (max(pnos) - min(pnos)) >= span_need}
+    if not hf_texts:
+        return
+
+    for pno in pages_dict:
+        pages_dict[pno] = [ln for ln in pages_dict[pno]
+                           if ln.strip() not in hf_texts]
 
 
 def _merge_standalone_list_marks(text: str) -> str:
@@ -283,6 +344,10 @@ def _document_result_to_page_texts(result: DocumentResult) -> list[PageText]:
                 pages_dict[page].append(t)
         # table, image, figure → 跳过
 
+    # 安全网: 文本级跨页重复行过滤(独立成行的文档名/公司名页眉等,
+    # 逃过新解析器行级检测的残留装饰)
+    _strip_cross_page_repeats(pages_dict)
+
     pages = []
     for pno in sorted(pages_dict.keys()):
         raw_text = "\n".join(pages_dict[pno])
@@ -322,6 +387,9 @@ def _parse_with_new(pdf_path: str) -> Optional[DocumentResult]:
     cached = _cache_get(_result_cache, fp)
     if cached is not None:
         return cached
+    # 已知失败(扫描件/此前解析异常)直接降级, 不重付失败解析的代价
+    if _cache_get(_fail_cache, fp) is not None:
+        return None
     try:
         # 图片资产导出到统一输出目录, 避免污染源PDF所在目录
         # (新模块默认导出到 PDF 同目录 assets/, 会污染 系统需求/ 等源目录)
@@ -336,11 +404,17 @@ def _parse_with_new(pdf_path: str) -> Optional[DocumentResult]:
         parser = DocumentParser(pdf_path, prefer_camelot=False, asset_dir=asset_dir)
         result = parser.parse()
         if not result.meta.get("has_text_layer", True):
+            _cache_put(_fail_cache, fp, '扫描件(无文本层)', _CACHE_MAX_DOCS)
+            print(f"    [pdf] 新模块不适用, 降级legacy: {os.path.basename(pdf_path)} (扫描件/无文本层)")
             return None  # 扫描件, 新模块无法处理
         _cache_put(_result_cache, fp, result, _CACHE_MAX_DOCS)
         dump_document_result(pdf_path, result)  # 中间产物: 解析阶段
         return result
-    except Exception:
+    except Exception as e:
+        # 记录失败并暴露原因: 静默吞异常会把新引擎的真实bug掩盖成"降级"
+        reason = f'{type(e).__name__}: {e}'
+        _cache_put(_fail_cache, fp, reason, _CACHE_MAX_DOCS)
+        print(f"    [pdf] 新模块解析失败, 降级legacy: {os.path.basename(pdf_path)} — {reason[:160]}")
         return None
 
 
@@ -609,9 +683,11 @@ def _prefetch_one(pdf_path: str) -> None:
 
 def prefetch_pdfs(pdfs, max_workers: int = 0) -> None:
     """
-    并行预解析多份PDF, 把解析结果灌入缓存
+    并行预解析多份PDF, 把解析结果灌入缓存(仅当前生效的后端)。
 
-    新模块和原始模块的缓存都会预热, 确保降级时也能命中缓存.
+    legacy 缓存不再无条件预热: 降级是小概率事件, 双引擎各解析一遍
+    会让每次全流程的解析时间近乎翻倍; 真发生降级时 legacy 按需解析
+    一次并写入自己的缓存, 结果不受影响。
     """
     if not _use_new_parser():
         return _legacy_prefetch_pdfs(pdfs, max_workers)
@@ -638,13 +714,11 @@ def prefetch_pdfs(pdfs, max_workers: int = 0) -> None:
             for p, _ in jobs:
                 _prefetch_one(p)
 
-    # 同时预热原始模块缓存(降级时直接命中)
-    _legacy_prefetch_pdfs(pdfs, max_workers)
-
 
 def clear_pdf_cache() -> None:
     """清空所有PDF解析缓存(新模块+原始模块)"""
     with _cache_lock:
         _result_cache.clear()
         _pagetext_cache.clear()
+        _fail_cache.clear()
     _legacy_clear_pdf_cache()

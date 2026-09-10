@@ -42,3 +42,22 @@ nul
 # Generated reports
 compare_detail.txt
 逐行精细对比报告.txt
+
+# LLM adjudicator response cache
+.llm_cache/
+
+# Local .env secrets
+.env
+
+# Agent working memory (local-only notes, not for version control)
+.workbuddy/
+
+# ------------------------------------------------------------------
+# Engineering source documents (NPP I&C) — kept local, never published.
+# These are real project documents; do not track or push them.
+# ------------------------------------------------------------------
+用户需求/
+系统需求/
+系统设计/
+基准数据/
+验证评估/

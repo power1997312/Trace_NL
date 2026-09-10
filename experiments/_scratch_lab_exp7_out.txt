@@ -1,0 +1,73 @@
+﻿python : D:\Program Files\Pyhon 3.10\lib\site-packages\torch\cuda\__init__.py:287: UserWarning: 
+At line:15 char:1930
++ ... odules\@vscode\ripgrep\bin'; python _scratch_lab_exp7.py 2>&1 | Out-F ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Program File...: UserWarning: :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+NVIDIA GeForce RTX 5060 Laptop GPU with CUDA capability sm_120 is not compatible with the current PyTorch installation.
+The current PyTorch install supports CUDA capabilities sm_37 sm_50 sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_90 compute_37
+.
+If you want to use the NVIDIA GeForce RTX 5060 Laptop GPU GPU with PyTorch, please check the instructions at https://py
+torch.org/get-started/locally/
+
+  warnings.warn(
+
+Loading weights:   0%|          | 0/71 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 71/71 [00:00<00:00, 10708.99it/s]
+编码完成 (6.8s)
+
+====================================================================================================
+流水线 A
+====================================================================================================
+anchor                       n=16 MRR=0.426 | top1=6/16(38%) | top3=6/16(38%) | top5=6/16(38%)
+ngram4                       n=16 MRR=0.598 | top1=6/16(38%) | top3=13/16(81%) | top5=13/16(81%)
+ngram3                       n=16 MRR=0.632 | top1=7/16(44%) | top3=13/16(81%) | top5=13/16(81%)
+base+anchor0.2+ngram0.1      n=16 MRR=0.710 | top1=9/16(56%) | top3=13/16(81%) | top5=14/16(88%)
+base+anchor0.3+ngram0.1      n=16 MRR=0.710 | top1=9/16(56%) | top3=13/16(81%) | top5=14/16(88%)
+    MISS <DCS-SyRS006> -> ('DCS设备技术规格书', '3.2.1') (gold_unit=3.2.1 系统和设备分级, rank=5) top3: <RPS-SYS-RQ-010>(0.32) 1 概述(0.29) <RPS-SYS-RQ-005>(0.28)
+    MISS <DCS-SyRS009> -> ('RPS系统需求规范书', '<RPS-SYS-RQ-010>') (gold_unit=<RPS-SYS-RQ-010>, rank=5) top3: <RPS-SYS-RQ-012>(0.34) <RPS-SYS-RQ-008>(0.31) 5 结构要求(0.30)
+base+anchor0.25+ngram0.15    n=16 MRR=0.710 | top1=9/16(56%) | top3=13/16(81%) | top5=14/16(88%)
+base+anchor0.35+ngram0.05    n=16 MRR=0.714 | top1=9/16(56%) | top3=13/16(81%) | top5=14/16(88%)
+--- anchor证据样例(前5条下游) ---
+  <DCS-SyRS001> -> 3.2.2.1 F-SC1级要求(0.96)★ 锚点: ['F-SC1级设备执行安全功能，要满足下列(不限于)要求:~', '单一故障准则、冗余、隔离、多样性、故障分析(FMEA)等', '在役检查和定期试验', '失去厂外电时仍运行', '环境和抗震(I类)鉴定', '仪控部件的硬件鉴定GB/T12727、GB/T13625和RCC-E']
+  <DCS-SyRS002> -> 3.2.2.2 F-SC2级要求(0.64)★ 锚点: ['F-SC2级设备执行安全功能，要满足下列(不限于)要求:~', '单一故障准则、冗余、隔离等', '在役检查和定期试验', '失去厂外电时仍运行', '环境和抗震(I类)鉴定', '仪控部件的硬件鉴定GB/T12727、GB/T13625和RCC-E']
+  <DCS-SyRS014> -> <RPS-SYS-RQ-013>(0.25)★ 锚点: ['在RTC和ESFAC实现的ESFAS功能也被分成两个多样性子系统。每个系列的ESFAC接收来自RTC相应子系统的“局部脱扣”信号，ESFAC-A1/B1对应逻辑系列中的子系统1,ESFAC-A2/B2对应逻辑系列中的子系统2~']
+
+====================================================================================================
+流水线 B1
+====================================================================================================
+anchor                       n=20 MRR=0.265 | top1=3/20(15%) | top3=4/20(20%) | top5=7/20(35%)
+ngram4                       n=20 MRR=0.410 | top1=5/20(25%) | top3=9/20(45%) | top5=14/20(70%)
+ngram3                       n=20 MRR=0.426 | top1=6/20(30%) | top3=9/20(45%) | top5=11/20(55%)
+base+anchor0.2+ngram0.1      n=20 MRR=0.511 | top1=8/20(40%) | top3=11/20(55%) | top5=11/20(55%)
+base+anchor0.3+ngram0.1      n=20 MRR=0.503 | top1=8/20(40%) | top3=11/20(55%) | top5=11/20(55%)
+    MISS <FZSDCS34-OTS006> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=15) top3: <DCS-SyRS009>(0.34) 48 V直流电源系统紧急操作台(0.33) <DCS-SyRS008>(0.31)
+    MISS <FZSDCS34-OTS008> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=8) top3: <DCS-SyRS007>(0.32) <DCS-SyRS011>(0.31) <DCS-SyRS008>(0.30)
+    MISS <FZSDCS34-OTS016> -> <FZSDCS34-SyRS004> (gold_unit=<DCS-SyRS004>, rank=11) top3: <DCS-SyRS007>(0.31) 48 V直流电源系统紧急操作台(0.30) <DCS-SyRS009>(0.30)
+    MISS <FZSDCS34-OTS018> -> <FZSDCS34-SyRS010> (gold_unit=<DCS-SyRS010>, rank=7) top3: <DCS-SyRS014>(0.35) <DCS-SyRS006>(0.31) 3.4.2 专设安全设施驱动系统（ESFAS(0.30)
+    MISS <FZSDCS34-OTS020> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: <DCS-SyRS007>(0.28) <DCS-SyRS010>(0.27) <DCS-SyRS008>(0.26)
+    MISS <FZSDCS34-OTS026> -> <FZSDCS34-SyRS003> (gold_unit=<DCS-SyRS003>, rank=6) top3: <DCS-SyRS008>(0.28) 1.5 其它约定(0.28) <DCS-SyRS004>(0.27)
+    MISS <FZSDCS34-OTS053> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=12) top3: <DCS-SyRS008>(0.31) <DCS-SyRS007>(0.29) <DCS-SyRS014>(0.29)
+    MISS <FZSDCS34-OTS054> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=13) top3: <DCS-SyRS014>(0.32) <DCS-SyRS009>(0.29) <DCS-SyRS007>(0.29)
+    MISS <FZSDCS34-OTS056> -> <FZSDCS34-SyRS006> (gold_unit=<DCS-SyRS006>, rank=12) top3: <DCS-SyRS008>(0.33) <DCS-SyRS007>(0.32) <DCS-SyRS009>(0.32)
+base+anchor0.25+ngram0.15    n=20 MRR=0.511 | top1=8/20(40%) | top3=11/20(55%) | top5=11/20(55%)
+base+anchor0.35+ngram0.05    n=20 MRR=0.503 | top1=8/20(40%) | top3=11/20(55%) | top5=11/20(55%)
+--- anchor证据样例(前5条下游) ---
+  <FZSDCS34-OTS001> -> <DCS-SyRS004>(0.22)★ 锚点: ['自动停堆功能', '专设安全设施驱动系统功能~', '支持系统驱动：', '自动汽机跳机', '允许信号的产生', '手动停堆和手动专设安全设施驱动']
+  <FZSDCS34-OTS002> -> <DCS-SyRS005>(0.21)★ 锚点: ['安全级DCS需要执行的NC级功能主要包括：', '数据传输功能']
+  <FZSDCS34-OTS012> -> <DCS-SyRS012>(0.80)★ 锚点: ['出于多样性的考虑，紧急停堆功能被分配在两个多样性子系统中，RTC-11、RTC-21、RTC-31、RTC-41对应多样性子系统1，RTC-12、RTC-22、RTC-32、RTC-42对应多样性子系统2，两个子系统相互独立，某个子系统的故障不得妨碍另一子系统功能的执行~']
+
+====================================================================================================
+流水线 B2
+====================================================================================================
+anchor                       n=10 MRR=0.840 | top1=8/10(80%) | top3=8/10(80%) | top5=10/10(100%)
+ngram4                       n=10 MRR=0.348 | top1=2/10(20%) | top3=2/10(20%) | top5=7/10(70%)
+ngram3                       n=10 MRR=0.326 | top1=1/10(10%) | top3=3/10(30%) | top5=7/10(70%)
+base+anchor0.2+ngram0.1      n=10 MRR=0.700 | top1=5/10(50%) | top3=8/10(80%) | top5=10/10(100%)
+base+anchor0.3+ngram0.1      n=10 MRR=0.700 | top1=5/10(50%) | top3=8/10(80%) | top5=10/10(100%)
+base+anchor0.25+ngram0.15    n=10 MRR=0.700 | top1=5/10(50%) | top3=8/10(80%) | top5=10/10(100%)
+base+anchor0.35+ngram0.05    n=10 MRR=0.700 | top1=5/10(50%) | top3=8/10(80%) | top5=10/10(100%)
+--- anchor证据样例(前5条下游) ---
+
+总耗时 9.5s

@@ -1,0 +1,80 @@
+﻿python : D:\Program Files\Pyhon 3.10\lib\site-packages\torch\cuda\__init__.py:287: UserWarning: 
+At line:15 char:1930
++ ... odules\@vscode\ripgrep\bin'; python _scratch_lab_exp5.py 2>&1 | Out-F ...
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Program File...: UserWarning: :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+NVIDIA GeForce RTX 5060 Laptop GPU with CUDA capability sm_120 is not compatible with the current PyTorch installation.
+The current PyTorch install supports CUDA capabilities sm_37 sm_50 sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_90 compute_37
+.
+If you want to use the NVIDIA GeForce RTX 5060 Laptop GPU GPU with PyTorch, please check the instructions at https://py
+torch.org/get-started/locally/
+
+  warnings.warn(
+
+Loading weights:   0%|          | 0/71 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 71/71 [00:00<00:00, 14056.91it/s]
+编码完成 (6.8s)
+
+====================================================================================================
+流水线 A
+====================================================================================================
+--- 召回率 recall@K (gold关系进入top-K的比例) ---
+  sem_asym   | R@5=12/16(75%) | R@8=14/16(88%) | R@10=16/16(100%) | R@15=16/16(100%)
+  contain    | R@5=13/16(81%) | R@8=15/16(94%) | R@10=15/16(94%) | R@15=16/16(100%)
+  idfR       | R@5=12/16(75%) | R@8=14/16(88%) | R@10=14/16(88%) | R@15=16/16(100%)
+  tfidf      | R@5=1/16(6%) | R@8=4/16(25%) | R@10=6/16(38%) | R@15=8/16(50%)
+  并集(4通道) R@5=13/16(81%)
+  并集(4通道) R@8=16/16(100%)
+  并集(4通道) R@10=16/16(100%)
+--- 权重网格搜索 (top1/top3/top5, 含折叠) ---
+  w(sem=0.5,con=0.2,idf=0.2,tf=0.1) top1=10 top3=13 top5=14 MRR=0.743
+  w(sem=0.4,con=0.2,idf=0.3,tf=0.1) top1=10 top3=13 top5=14 MRR=0.740
+  w(sem=0.4,con=0.1,idf=0.3,tf=0.2) top1=10 top3=13 top5=13 MRR=0.740
+  w(sem=0.5,con=0.1,idf=0.3,tf=0.1) top1=10 top3=13 top5=13 MRR=0.738
+  w(sem=0.4,con=0.2,idf=0.2,tf=0.2) top1=10 top3=13 top5=13 MRR=0.738
+  w(sem=0.5,con=0.1,idf=0.2,tf=0.2) top1=10 top3=13 top5=13 MRR=0.737
+最佳 w=(0.5, 0.2, 0.2, 0.1)    n=16 MRR=0.743 | top1=10/16(62%) | top3=13/16(81%) | top5=14/16(88%)
+
+====================================================================================================
+流水线 B1
+====================================================================================================
+--- 召回率 recall@K (gold关系进入top-K的比例) ---
+  sem_asym   | R@5=11/20(55%) | R@8=14/20(70%) | R@10=16/20(80%) | R@15=19/20(95%)
+  contain    | R@5=12/20(60%) | R@8=14/20(70%) | R@10=15/20(75%) | R@15=19/20(95%)
+  idfR       | R@5=13/20(65%) | R@8=16/20(80%) | R@10=17/20(85%) | R@15=19/20(95%)
+  tfidf      | R@5=7/20(35%) | R@8=8/20(40%) | R@10=10/20(50%) | R@15=15/20(75%)
+  并集(4通道) R@5=18/20(90%)
+  并集(4通道) R@8=19/20(95%)
+  并集(4通道) R@10=20/20(100%)
+--- 权重网格搜索 (top1/top3/top5, 含折叠) ---
+  w(sem=0.3,con=0.2,idf=0.3,tf=0.2) top1=9 top3=11 top5=11 MRR=0.536
+  w(sem=0.4,con=0.2,idf=0.2,tf=0.2) top1=9 top3=11 top5=11 MRR=0.535
+  w(sem=0.4,con=0.1,idf=0.3,tf=0.2) top1=9 top3=11 top5=11 MRR=0.535
+  w(sem=0.3,con=0.1,idf=0.3,tf=0.3) top1=9 top3=10 top5=11 MRR=0.534
+  w(sem=0.3,con=0.2,idf=0.2,tf=0.3) top1=9 top3=10 top5=10 MRR=0.531
+  w(sem=0.4,con=0.2,idf=0.3,tf=0.1) top1=8 top3=11 top5=11 MRR=0.512
+最佳 w=(0.3, 0.2, 0.3, 0.2)    n=20 MRR=0.536 | top1=9/20(45%) | top3=11/20(55%) | top5=11/20(55%)
+
+====================================================================================================
+流水线 B2
+====================================================================================================
+--- 召回率 recall@K (gold关系进入top-K的比例) ---
+  sem_asym   | R@5=10/10(100%) | R@8=10/10(100%) | R@10=10/10(100%) | R@15=10/10(100%)
+  contain    | R@5=7/10(70%) | R@8=9/10(90%) | R@10=10/10(100%) | R@15=10/10(100%)
+  idfR       | R@5=4/10(40%) | R@8=8/10(80%) | R@10=9/10(90%) | R@15=10/10(100%)
+  tfidf      | R@5=1/10(10%) | R@8=3/10(30%) | R@10=5/10(50%) | R@15=8/10(80%)
+  并集(4通道) R@5=10/10(100%)
+  并集(4通道) R@8=10/10(100%)
+  并集(4通道) R@10=10/10(100%)
+--- 权重网格搜索 (top1/top3/top5, 含折叠) ---
+  w(sem=0.5,con=0.2,idf=0.2,tf=0.1) top1=5 top3=8 top5=9 MRR=0.673
+  w(sem=0.5,con=0.1,idf=0.3,tf=0.1) top1=5 top3=8 top5=9 MRR=0.673
+  w(sem=0.4,con=0.2,idf=0.3,tf=0.1) top1=5 top3=7 top5=9 MRR=0.664
+  w(sem=0.5,con=0.1,idf=0.2,tf=0.2) top1=2 top3=7 top5=9 MRR=0.491
+  w(sem=0.4,con=0.2,idf=0.2,tf=0.2) top1=2 top3=7 top5=9 MRR=0.491
+  w(sem=0.4,con=0.1,idf=0.3,tf=0.2) top1=2 top3=7 top5=8 MRR=0.449
+最佳 w=(0.5, 0.2, 0.2, 0.1)    n=10 MRR=0.673 | top1=5/10(50%) | top3=8/10(80%) | top5=9/10(90%)
+
+总耗时 7.1s

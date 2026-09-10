@@ -1,0 +1,80 @@
+﻿python : D:\Program Files\Pyhon 3.10\lib\site-packages\torch\cuda\__init__.py:287: UserWarning: 
+At line:15 char:1930
++ ... pgrep\bin'; python _scratch_candidate_discovery_probe.py 2>&1 | Out-F ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (D:\Program File...: UserWarning: :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+NVIDIA GeForce RTX 5060 Laptop GPU with CUDA capability sm_120 is not compatible with the current PyTorch installation.
+The current PyTorch install supports CUDA capabilities sm_37 sm_50 sm_60 sm_61 sm_70 sm_75 sm_80 sm_86 sm_90 compute_37
+.
+If you want to use the NVIDIA GeForce RTX 5060 Laptop GPU GPU with PyTorch, please check the instructions at https://py
+torch.org/get-started/locally/
+
+  warnings.warn(
+下游条目: 14 (id_based)
+上游候选单元: 29
+   [RPS系统需求规范书] <RPS-SYS-RQ-001>  (92字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-002>  (22字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-003>  (51字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-004>  (51字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-005>  (61字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-006>  (53字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-007>  (51字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-008>  (733字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-009>  (156字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-010>  (208字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-011>  (94字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-012>  (680字)
+   [RPS系统需求规范书] <RPS-SYS-RQ-013>  (371字)
+   [RPS系统需求规范书] 1 概述  (64字)
+   [RPS系统需求规范书] 2 文件目的  (86字)
+   [RPS系统需求规范书] 3.1 标准和文件  (74字)
+   [RPS系统需求规范书] 3.2 软件  (68字)
+   [RPS系统需求规范书] 3.3 工程化  (167字)
+   [RPS系统需求规范书] 3.4 设备和耗材  (30字)
+   [RPS系统需求规范书] 4 RPSDE功能描述  (874字)
+   [RPS系统需求规范书] 5 结构要求  (1491字)
+   [DCS设备技术规格书] 1 概述  (76字)
+   [DCS设备技术规格书] 2. 协调和集成  (150字)
+   [DCS设备技术规格书] 3.1 综述  (158字)
+   [DCS设备技术规格书] 3.2.1 系统和设备分级  (257字)
+   [DCS设备技术规格书] 3.2.2.1 F-SC1级要求  (154字)
+   [DCS设备技术规格书] 3.2.2.2 F-SC2级要求  (209字)
+   [DCS设备技术规格书] 3.2.2.3 F-SC3级要求  (188字)
+   [DCS设备技术规格书] 3.2.2.4 NC级要求  (65字)
+
+Loading weights:   0%|          | 0/71 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 71/71 [00:00<00:00, 4585.28it/s]
+
+========== 无表候选发现结果(每条下游条目 top3) ==========
+<DCS-SyRS001>: top1=✓ top3=✓ | gold=DCS设备技术规格书:3.2.2.1
+    cand: 3.2.2.1 F-SC1级要求(0.99|e0.99) 3.2.2.2 F-SC2级要求(0.87|e0.95) 3.2.2.3 F-SC3级要求(0.82|e0.93)
+<DCS-SyRS002>: top1=✗ top3=✓ | gold=DCS设备技术规格书:3.2.2.2
+    cand: 3.2.2.1 F-SC1级要求(0.94|e0.99) 3.2.2.2 F-SC2级要求(0.91|e0.96) 3.2.2.3 F-SC3级要求(0.84|e0.95)
+<DCS-SyRS003>: top1=✗ top3=✓ | gold=DCS设备技术规格书:3.2.2.2
+    cand: <RPS-SYS-RQ-009>(0.65|e0.83) 3.2.2.2 F-SC2级要求(0.65|e0.82) 3.2.1 系统和设备分级(0.62|e0.80)
+<DCS-SyRS004>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-008>
+    cand: <RPS-SYS-RQ-008>(0.72|e0.88) 4 RPSDE功能描述(0.72|e0.89) 3.2.2.2 F-SC2级要求(0.58|e0.76)
+<DCS-SyRS005>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-008>, RPS系统需求规范书:<RPS-SYS-RQ-009>
+    cand: <RPS-SYS-RQ-009>(0.70|e0.83) 3.2.2.2 F-SC2级要求(0.63|e0.83) 3.2.2.1 F-SC1级要求(0.62|e0.82)
+<DCS-SyRS006>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-010>, DCS设备技术规格书:3.2.1
+    cand: <RPS-SYS-RQ-010>(0.61|e0.77) 5 结构要求(0.59|e0.77) 3.2.1 系统和设备分级(0.57|e0.74)
+<DCS-SyRS007>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-012>
+    cand: <RPS-SYS-RQ-012>(0.65|e0.83) 5 结构要求(0.62|e0.80) <RPS-SYS-RQ-011>(0.57|e0.74)
+<DCS-SyRS008>: top1=✗ top3=✗ | gold=RPS系统需求规范书:<RPS-SYS-RQ-010>
+    cand: 1 概述(0.56|e0.73) 3.2.2.1 F-SC1级要求(0.54|e0.71) 3.2.1 系统和设备分级(0.54|e0.71)
+<DCS-SyRS009>: top1=✗ top3=✗ | gold=RPS系统需求规范书:<RPS-SYS-RQ-010>
+    cand: 1 概述(0.54|e0.69) <RPS-SYS-RQ-012>(0.52|e0.68) <RPS-SYS-RQ-009>(0.49|e0.63)
+<DCS-SyRS010>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-011>
+    cand: <RPS-SYS-RQ-011>(0.76|e0.88) 5 结构要求(0.59|e0.76) <RPS-SYS-RQ-013>(0.58|e0.74)
+<DCS-SyRS011>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-012>
+    cand: <RPS-SYS-RQ-012>(0.78|e0.92) 5 结构要求(0.67|e0.82) <RPS-SYS-RQ-013>(0.62|e0.78)
+<DCS-SyRS012>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-012>
+    cand: <RPS-SYS-RQ-012>(0.60|e0.74) <RPS-SYS-RQ-013>(0.53|e0.65) <RPS-SYS-RQ-011>(0.51|e0.65)
+<DCS-SyRS013>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-012>
+    cand: <RPS-SYS-RQ-012>(0.64|e0.81) <RPS-SYS-RQ-013>(0.52|e0.67) 5 结构要求(0.50|e0.65)
+<DCS-SyRS014>: top1=✓ top3=✓ | gold=RPS系统需求规范书:<RPS-SYS-RQ-013>
+    cand: <RPS-SYS-RQ-013>(0.73|e0.86) <RPS-SYS-RQ-011>(0.58|e0.75) 5 结构要求(0.58|e0.74)
+
+===== top-1 命中率: 10/14 = 71% | top-3 命中率: 12/14 = 86% =====

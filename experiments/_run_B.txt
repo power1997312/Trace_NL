@@ -1,0 +1,113 @@
+﻿系统设计PDFs: ['仪控报警', '总体方案']
+系统需求PDF: DCS需求说明书.pdf
+
+>>> 构建逆向追踪矩阵（系统设计→系统需求, 模式: discover）...
+>>> 运行模式: discover (纯内容候选发现, 忽略追踪关系表)
+    处理设计文档: 仪控报警
+    [discover] 下游单元 12, 上游单元 16
+    [discover] 编码 28 个单元...
+python : 
+At line:15 char:1930
++ ... @vscode\ripgrep\bin'; python run_e2e_sd_test.py discover 2>&1 | Out-F ...
++                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Loading weights:   0%|          | 0/71 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 71/71 [00:00<00:00, 10110.87it/s]
+    处理设计文档: 总体方案
+    [discover] 下游单元 22, 上游单元 16
+    [discover] 编码 38 个单元...
+    完成: 58 条关系 (10.9s)
+    上游（系统需求）内容为空: 3/58
+    下游（系统设计）内容为空: 0/58
+
+    行号 | 下游ID(设计)         | 上游文档            | 上游引用(需求)           | 上游内容长度 | 下游内容长度
+    --------------------------------------------------------------------------------------------------------------
+       1 | <FZSDCS34-ICADS001>    | 系统需求               | <DCS-SyRS005>            |    151 |    179
+       2 | <FZSDCS34-ICADS002>    | 系统需求               | <DCS-SyRS005>            |    151 |     52
+       3 | <FZSDCS34-ICADS003>    |                    |                          |      0 |     53
+       4 | <FZSDCS34-ICADS004>    | 系统需求               | <DCS-SyRS005>            |    151 |     96
+       5 | <FZSDCS34-ICADS005>    |                    |                          |      0 |    104
+       6 | <FZSDCS34-ICADS006>    |                    |                          |      0 |    115
+       7 | <FZSDCS34-ICADS007>    | 系统需求               | <DCS-SyRS005>            |    151 |    333
+       7 | <FZSDCS34-ICADS007>    | 系统需求               | <DCS-SyRS013>            |     71 |    333
+       8 | <FZSDCS34-ICADS008>    | 系统需求               | <DCS-SyRS005>            |    151 |    107
+       8 | <FZSDCS34-ICADS008>    | 系统需求               | 48 V直流电源系统紧急操作台          |    960 |    107
+       9 | <FZSDCS34-ICADS009>    | 系统需求               | <DCS-SyRS005>            |    151 |     83
+      10 | <FZSDCS34-ICADS010>    | 系统需求               | 48 V直流电源系统紧急操作台          |    960 |     59
+      11 | <FZSDCS34-ICADS011>    | 系统需求               | <DCS-SyRS005>            |    151 |     87
+      12 | <FZSDCS34-ICADS012>    | 系统需求               | <DCS-SyRS005>            |    151 |    192
+      13 | <FZSDCS34-OTS001>      | 系统需求               | <DCS-SyRS004>            |    258 |    123
+      14 | <FZSDCS34-OTS002>      | 系统需求               | <DCS-SyRS005>            |    151 |     79
+      15 | <FZSDCS34-OTS003>      | 系统需求               | <DCS-SyRS009>            |     30 |     61
+      15 | <FZSDCS34-OTS003>      | 系统需求               | <DCS-SyRS008>            |     64 |     61
+      15 | <FZSDCS34-OTS003>      | 系统需求               | <DCS-SyRS004>            |    258 |     61
+      16 | <FZSDCS34-OTS004>      | 系统需求               | <DCS-SyRS006>            |    202 |    168
+      17 | <FZSDCS34-OTS005>      | 系统需求               | <DCS-SyRS004>            |    258 |    376
+      17 | <FZSDCS34-OTS005>      | 系统需求               | <DCS-SyRS009>            |     30 |    376
+      17 | <FZSDCS34-OTS005>      | 系统需求               | <DCS-SyRS007>            |    165 |    376
+      18 | <FZSDCS34-OTS006>      | 系统需求               | <DCS-SyRS004>            |    258 |    505
+      19 | <FZSDCS34-OTS008>      | 系统需求               | <DCS-SyRS008>            |     64 |    103
+      19 | <FZSDCS34-OTS008>      | 系统需求               | <DCS-SyRS004>            |    258 |    103
+      20 | <FZSDCS34-OTS009>      | 系统需求               | <DCS-SyRS009>            |     30 |    137
+      20 | <FZSDCS34-OTS009>      | 系统需求               | <DCS-SyRS012>            |    136 |    137
+      20 | <FZSDCS34-OTS009>      | 系统需求               | <DCS-SyRS013>            |     71 |    137
+      21 | <FZSDCS34-OTS010>      | 系统需求               | <DCS-SyRS010>            |    108 |    179
+      21 | <FZSDCS34-OTS010>      | 系统需求               | <DCS-SyRS007>            |    165 |    179
+      21 | <FZSDCS34-OTS010>      | 系统需求               | <DCS-SyRS014>            |    112 |    179
+      22 | <FZSDCS34-OTS011>      | 系统需求               | <DCS-SyRS007>            |    165 |    126
+      23 | <FZSDCS34-OTS012>      | 系统需求               | <DCS-SyRS012>            |    136 |    144
+      24 | <FZSDCS34-OTS016>      | 系统需求               | <DCS-SyRS007>            |    165 |     75
+      24 | <FZSDCS34-OTS016>      | 系统需求               | <DCS-SyRS009>            |     30 |     75
+      24 | <FZSDCS34-OTS016>      | 系统需求               | <DCS-SyRS011>            |    255 |     75
+      25 | <FZSDCS34-OTS017>      | 系统需求               | <DCS-SyRS004>            |    258 |    122
+      26 | <FZSDCS34-OTS018>      | 系统需求               | <DCS-SyRS014>            |    112 |    444
+      26 | <FZSDCS34-OTS018>      | 系统需求               | <DCS-SyRS006>            |    202 |    444
+      26 | <FZSDCS34-OTS018>      | 系统需求               | <DCS-SyRS007>            |    165 |    444
+      27 | <FZSDCS34-OTS019>      | 系统需求               | <DCS-SyRS010>            |    108 |    254
+      27 | <FZSDCS34-OTS019>      | 系统需求               | <DCS-SyRS014>            |    112 |    254
+      28 | <FZSDCS34-OTS020>      | 系统需求               | <DCS-SyRS007>            |    165 |     65
+      28 | <FZSDCS34-OTS020>      | 系统需求               | <DCS-SyRS010>            |    108 |     65
+      29 | <FZSDCS34-OTS021>      | 系统需求               | <DCS-SyRS014>            |    112 |    419
+      29 | <FZSDCS34-OTS021>      | 系统需求               | <DCS-SyRS008>            |     64 |    419
+      29 | <FZSDCS34-OTS021>      | 系统需求               | <DCS-SyRS011>            |    255 |    419
+      30 | <FZSDCS34-OTS026>      | 系统需求               | <DCS-SyRS008>            |     64 |    106
+      30 | <FZSDCS34-OTS026>      | 系统需求               | <DCS-SyRS004>            |    258 |    106
+      31 | <FZSDCS34-OTS051>      | 系统需求               | <DCS-SyRS008>            |     64 |    168
+      32 | <FZSDCS34-OTS053>      | 系统需求               | <DCS-SyRS008>            |     64 |    390
+      33 | <FZSDCS34-OTS054>      | 系统需求               | <DCS-SyRS014>            |    112 |    433
+      33 | <FZSDCS34-OTS054>      | 系统需求               | <DCS-SyRS009>            |     30 |    433
+      33 | <FZSDCS34-OTS054>      | 系统需求               | <DCS-SyRS007>            |    165 |    433
+      34 | <FZSDCS34-OTS056>      | 系统需求               | <DCS-SyRS004>            |    258 |    432
+      34 | <FZSDCS34-OTS056>      | 系统需求               | <DCS-SyRS008>            |     64 |    432
+      34 | <FZSDCS34-OTS056>      | 系统需求               | <DCS-SyRS007>            |    165 |    432
+
+>>> 执行微块级文本匹配验证...
+
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]
+Loading weights: 100%|██████████| 201/201 [00:00<00:00, 41626.18it/s]
+    完成 (3.1s)
+
+    匹配统计:
+    GREEN(完全一致): 50/58 (86%)
+    BLUE(语义匹配):  1/58 (2%)
+    BLACK(未匹配):   7/58 (12%)
+
+>>> 生成逆向追踪矩阵Excel: E:\Trace_NL\output\追踪验证结果_系统设计_20260903_212858.xlsx
+    完成!
+
+>>> 生成正向追踪矩阵Excel（系统需求→系统设计）: E:\Trace_NL\output\正向追踪矩阵_系统设计_20260903_212859.xlsx
+>>> 读取逆向追踪矩阵数据...
+    读取到 55 条追踪关系
+>>> 提取系统需求PDF条目...
+    [DCS需求说明书]: 14 个条目
+>>> 构建正向矩阵数据 (匹配 + union coloring)...
+    总条目: 15, 有追踪: 12, 未追踪: 3
+    系统设计追踪关系: 55
+    [DCS需求说明书]: 15 个条目 (12 有追踪, 3 未追踪)
+>>> 生成正向追踪矩阵Excel...
+    已保存至 E:\Trace_NL\output\正向追踪矩阵_系统设计_20260903_212859.xlsx
+    文档数: 1, 总条目: 15, 有追踪: 12, 未追踪: 3, 系统设计追踪: 55
+
+=== 系统设计追踪矩阵生成完成 ===

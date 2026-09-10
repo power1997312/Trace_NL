@@ -1,4 +1,10 @@
-# pdfparser —— 工程级 PDF 结构化提取工具
+# pdfparser —— 工程级 PDF 结构化提取工具（已归档）
+
+> [!warning] 本目录已归档（2026-09-09）
+> 生产代码已迁移至项目根目录 `pdfparser/`（经适配器 `core/pdf_parser_adapter.py` 接入主管线，并有后续修复），
+> 本目录的 `src/`、`tests/`、`tools/`、`samples/` 已删除。
+> 现仅保留 **`complex_pdfs/` 测试语料**（真实论文/标准/工程文档 PDF）与开发期文档
+> （design / plan / review / final_report），供回归测试与历史追溯使用。
 
 **不依赖 OCR 与大模型**，仅解析 PDF 内部结构（对象层/内容流层/几何层），
 从复杂工程文档（含中文）中完整提取并重建：文字、章节层级、列表（序号/短线/圆点）、

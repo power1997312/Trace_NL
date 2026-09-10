@@ -66,8 +66,13 @@ class ContentMap:
         4. 精确full_key匹配
         5. 子串匹配(引用串包含在某键中，或某键包含引用串)
         6. 模糊匹配(difflib >= 0.7)
+
+        空引用直接返回 None — 否则策略5的 `'' in key` 恒真,
+        会错误返回任意首个键的内容。
         """
-        ref = reference.strip()
+        ref = (reference or '').strip()
+        if not ref:
+            return None
         ref_normalized = _normalize_reference(ref)
 
         # 1. 精确ID匹配

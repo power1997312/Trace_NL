@@ -1154,115 +1154,20 @@ def _apply_subphrase_green(
 
 
 # ============================================================
-# 子短语GREEN对称传播 (Solution 1b)
+# 子短语GREEN公共子串查找
 # ============================================================
-
-def _cross_mark_subphrase_green(
-    blocks: list,
-    other_blocks: list,
-    sim_matrix: np.ndarray,
-    pos_map: list[int] = None,
-) -> None:
-    """
-    子短语GREEN交叉标记: 当blocks[i]有子短语GREEN(children)时，
-    在对侧最佳匹配块other_blocks[j]中查找对应子串并标记GREEN。
-    
-    与_apply_subphrase_green不同: 此函数从已有children出发，
-    直接在对侧最佳匹配块中查找，无需top-N候选扫描。
-    """
-    if not blocks or not other_blocks:
-        return
-
-    for i, block in enumerate(blocks):
-        if block.category != MatchCategory.GREEN:
-            continue
-        if not block.children:
-            continue
-        if i >= sim_matrix.shape[0]:
-            continue
-
-        # 提取该块的GREEN子串文本
-        block_text = block.text
-        block_start = block.start
-
-        green_texts = []
-        for cs, ce, _ in block.children:
-            local_s = cs - block_start
-            local_e = ce - block_start
-            if 0 <= local_s < local_e <= len(block_text):
-                sub = block_text[local_s:local_e].strip()
-                if sub and len(sub) >= _MIN_GREEN_SUBSTR_LEN:
-                    green_texts.append(sub)
-
-        if not green_texts:
-            continue
-
-        # 在对侧所有块中查找(不限于最佳匹配，因为子短语可能在非最佳匹配块中)
-        row = sim_matrix[i]
-        top_indices = np.argsort(row)[::-1][:5]  # 取top-5候选
-
-        for j_idx in top_indices:
-            j = int(j_idx)
-            if row[j] < _MIN_BLOCK_SIM_FOR_SUBPHRASE:
-                continue
-
-            other = other_blocks[j]
-            other_text = other.text
-            if len(other_text) < _MIN_GREEN_SUBSTR_LEN:
-                continue
-
-            norm_other = _normalize_for_char_compare(other_text)
-            norm_to_orig = _build_norm_to_orig_map(other_text)
-            if not norm_to_orig:
-                continue
-
-            new_children = list(other.children) if other.children else []
-            for sub in green_texts:
-                norm_sub = _normalize_for_char_compare(sub)
-                if len(norm_sub) < _MIN_GREEN_SUBSTR_LEN:
-                    continue
-                pos = norm_other.find(norm_sub)
-                if pos < 0:
-                    continue
-                if pos >= len(norm_to_orig):
-                    continue
-
-                # norm_to_orig 映射到 other_text 内的位置(块局部坐标)
-                block_local_start = norm_to_orig[pos]
-                block_local_end_pos = pos + len(norm_sub) - 1
-                if block_local_end_pos >= len(norm_to_orig):
-                    continue
-                block_local_end = norm_to_orig[block_local_end_pos] + 1
-                # 转换为全文绝对坐标(_blocks_to_runs_subphrase需要绝对坐标)
-                orig_start = other.start + block_local_start
-                orig_end = other.start + block_local_end
-
-                found_txt = other_text[block_local_start:block_local_end]
-                bj = _char_bigram_jaccard(norm_sub, _normalize_for_char_compare(found_txt))
-                if bj < 0.92:
-                    continue
-
-                dup = False
-                for cs2, ce2, _ in new_children:
-                    if orig_start >= cs2 and orig_end <= ce2:
-                        dup = True; break
-                    if cs2 >= orig_start and ce2 <= orig_end:
-                        dup = True; break
-                if not dup:
-                    new_children.append((orig_start, orig_end, orig_end - orig_start))
-
-            if new_children:
-                new_children.sort(key=lambda x: x[2], reverse=True)
-                if len(new_children) > _MAX_GREEN_SUBSTRS_PER_BLOCK:
-                    new_children = new_children[:_MAX_GREEN_SUBSTRS_PER_BLOCK]
-                other.children = new_children
-                other.category = MatchCategory.GREEN
 
 def _find_green_substrings(text: str, other_text: str) -> list:
     norm_a = _normalize_for_char_compare(text)
     norm_b = _normalize_for_char_compare(other_text)
     if not norm_a or not norm_b or len(norm_a) < _MIN_GREEN_SUBSTR_LEN:
         return []
+    # 长度护栏: 防止长块的 O(m·n) DP 退化(与 _lcs_ratio 的 200 字符截断口径一致)。
+    # 匹配块为短语级(通常远短于200字符), 正常路径不受影响。
+    _MAX_DP_LEN = 200
+    if len(norm_a) > _MAX_DP_LEN or len(norm_b) > _MAX_DP_LEN:
+        norm_a = norm_a[:_MAX_DP_LEN]
+        norm_b = norm_b[:_MAX_DP_LEN]
     m, n = len(norm_a), len(norm_b)
     results = []
     seen = set()
@@ -1427,11 +1332,13 @@ def _classify_block(
     """
     根据嵌入相似度和字符级/NLI验证，分类单个微块
 
-    优化后的分类策略:
+    分类策略(与《追踪设计说明》§7.4 判定树一致):
     - 最低相似度门槛: 嵌入<0.50 → 直接BLACK
     - Stage 2a (GREEN): 嵌入>=0.95 + (bigram>=0.92 或 char_set>=0.88且LCS>=0.80) + 长度比合理
-    - Stage 2b (BLUE): 嵌入>=0.75 + NLI蕴含>=0.85 (降低char_set阈值到0.35)
-    - Stage 2c (BLUE fallback): 嵌入>=0.85 + LCS>=0.55 (无需NLI)
+    - Stage 2b (BLUE): 嵌入>=0.70 + NLI蕴含>=0.85 + char_set>=0.50
+      (或 NLI中立>=0.80 + 嵌入>=0.80 + char_set>=0.50)
+    - Stage 2c (BLUE fallback): 嵌入>=0.85 + (LCS>=0.55 或 char_set>=0.60), 无需NLI
+    - Stage 2d (BLUE): 嵌入>=0.75 + char_set>=0.55 + LCS>=0.45
     - 其余 → BLACK
     """
     # 最低相似度门槛: 低于此直接判BLACK
@@ -1496,10 +1403,6 @@ def _classify_block(
         if entailment_p >= NLI_ENTAILMENT_THRESHOLD:
             char_j = _char_set_jaccard(text_a, text_b)
             if char_j >= 0.50:
-                return MatchCategory.BLUE
-            # 超高NLI蕴含(>=0.90) + 适度字符重叠(>=0.50) → 也标BLUE
-            # 处理因短语分解粒度差异导致的字符重叠偏低
-            if entailment_p >= 0.90 and char_j >= 0.50:
                 return MatchCategory.BLUE
 
         # 高NLI中立 + 高嵌入 → BLUE
@@ -1987,19 +1890,38 @@ def _warmup_models(pairs: list[tuple[str, str]]) -> None:
         predict_batch(nli_pairs)
 
 
-def verify_matrix(matrix) -> None:
+def verify_matrix(matrix, progress_cb=None) -> None:
     """
     对整个追踪矩阵执行文本匹配验证
     结果直接写入每行的 match_result 字段
 
+    单行匹配异常不中断整体(该行 match_result 置 None, 下游渲染按未匹配处理)。
+
     Args:
         matrix: TraceabilityMatrix 对象
+        progress_cb: 可选进度回调 fn(done, total), 每完成一行调用一次
     """
-    # 先做一次全矩阵批量推理预热缓存, 再逐行匹配(结果不变, 只为提速)
-    _warmup_models([(r.downstream_content, r.upstream_content) for r in matrix.rows])
+    rows = matrix.rows
+    total = len(rows)
 
-    for row in matrix.rows:
-        row.match_result = match_text_pair(
-            row.downstream_content,
-            row.upstream_content,
-        )
+    # 先做一次全矩阵批量推理预热缓存, 再逐行匹配(结果不变, 只为提速)
+    try:
+        _warmup_models([(r.downstream_content, r.upstream_content) for r in rows])
+    except Exception as e:  # noqa: BLE001 — 预热失败退回逐行推理
+        print(f'    [match] 模型预热失败(退回逐行推理): {type(e).__name__}: {e}')
+
+    for idx, row in enumerate(rows):
+        try:
+            row.match_result = match_text_pair(
+                row.downstream_content,
+                row.upstream_content,
+            )
+        except Exception as e:  # noqa: BLE001 — 单行失败不拖垮整体验证
+            print(f'    [match] 行{row.seq_number}({row.downstream_id})匹配失败: '
+                  f'{type(e).__name__}: {e}')
+            row.match_result = None
+        if progress_cb is not None:
+            try:
+                progress_cb(idx + 1, total)
+            except Exception:  # noqa: BLE001 — 回调异常不影响匹配
+                pass

@@ -1,11 +1,13 @@
 from __future__ import annotations
 """
 格式化Excel生成模块
-- 逆向追踪矩阵Sheet (6列)
-- 正向追踪矩阵Sheet (7列)
+- 逆向追踪矩阵Sheet (6列, 按下游文档分sheet)
 - CellRichText文字级着色
 - 合并单元格处理一对多关系
 - 格式复刻Trace_Base.xlsx
+
+正向追踪矩阵已移至独立模块(generate_forward_matrix.py /
+generate_forward_sd_matrix.py), 本模块仅输出逆向矩阵。
 """
 import os
 from openpyxl import Workbook
@@ -94,17 +96,15 @@ def _make_rich_text(text_runs, default_text: str = '') -> CellRichText | str:
 def generate_excel(
     matrix: TraceabilityMatrix,
     output_path: str,
-    include_forward: bool = True,
 ):
     """
-    生成格式化的追踪矩阵Excel文件
+    生成格式化的逆向追踪矩阵Excel文件
 
     Args:
         matrix: 追踪矩阵数据
         output_path: 输出文件路径
-        include_forward: 是否包含正向矩阵sheet
 
-    问题2优化: 逆向追踪矩阵按下游文档(downstream_doc)拆分到不同sheet页,
+    逆向追踪矩阵按下游文档(downstream_doc)拆分到不同sheet页,
     不同系统设计文档的追踪关系数据不再混在同一sheet中。
     """
     wb = Workbook()
@@ -127,9 +127,6 @@ def generate_excel(
         # 多文档时分sheet, 单文档时保持原sheet名 '逆向追踪矩阵'
         ws.title = _safe_sheet_name(doc_name) if is_multi else '逆向追踪矩阵'
         _write_backward_sheet(ws, matrix, indices)
-
-    # 正向追踪矩阵已移至独立Excel文件 (generate_forward_matrix.py)
-    # 逆向矩阵Excel仅包含逆向追踪矩阵sheet
 
     # 确保输出目录存在
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
@@ -215,7 +212,11 @@ def _set_row_height(ws, row: int, texts_with_widths: list[tuple], min_height: fl
     max_lines = 1
     for text, col_width in texts_with_widths:
         if text:
-            max_lines = max(max_lines, _estimate_visible_lines(text, col_width))
+            est = _estimate_visible_lines(text, col_width)
+            # 安全系数1.15: 字宽边界处Excel实际折行常比估算多一行;
+            # 长文本折行数多, 该误差被放大, 乘系数兜底避免"看不全"
+            est = max(est, int(est * 1.15) + (1 if est > 3 else 0))
+            max_lines = max(max_lines, est)
     ws.row_dimensions[row].height = max(min_height, max_lines * line_height + pad)
 
 
@@ -230,7 +231,9 @@ def _set_merged_row_heights(ws, first_row: int, last_row: int,
     max_lines = 1
     for text, col_width in texts_with_widths:
         if text:
-            max_lines = max(max_lines, _estimate_visible_lines(text, col_width))
+            est = _estimate_visible_lines(text, col_width)
+            est = max(est, int(est * 1.15) + (1 if est > 3 else 0))
+            max_lines = max(max_lines, est)
     total_height = max(min_height, max_lines * line_height + pad)
     n = max(1, last_row - first_row + 1)
     per_row = max(min_height, total_height / n)
@@ -250,8 +253,11 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix, row_indices: list[int]
         row_indices = list(range(len(matrix.rows)))
 
     # 表头（第7列 下游文档 = 实际来源文档名, 供正向矩阵识别来源）
-    headers = ['序号', '下游条目号', '下游内容', '上游文档', '上游条目号/章节', '上游内容', '下游文档']
-    widths = [6, 22, 55, 20, 22, 60, 20]
+    # 第8-11列为候选发现层元数据(三模式接入): 关系来源/置信度/证据/待人工确认
+    # 第12列为LLM裁决器的AI审核意见(未启用裁决器时为空列)
+    headers = ['序号', '下游条目号', '下游内容', '上游文档', '上游条目号/章节', '上游内容', '下游文档',
+               '关系来源', '置信度', '证据', '待人工确认', 'AI 审核意见']
+    widths = [6, 22, 55, 20, 22, 70, 20, 10, 8, 48, 10, 48]
     _write_header_row(ws, headers, widths)
 
     # 全局索引 -> 本sheet局部Excel行号(2-based) 的映射
@@ -328,10 +334,45 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix, row_indices: list[int]
         _set_cell(ws, r, 7, row.downstream_doc,
                   Font(name=FONT_NAME, size=ID_FONT_SIZE))
 
-        # 数据行行高: 下游内容(55)、上游内容(60) 按换行/列宽估算
+        # 关系来源: table(追踪表) / discover(内容发现) / hybrid(表+发现)
+        _set_cell(ws, r, 8, row.relation_source,
+                  Font(name=FONT_NAME, size=CONTENT_FONT_SIZE))
+
+        # 置信度: 发现层融合分(表格来源行留空)
+        if row.relation_source != 'table' and row.candidate_score > 0:
+            _set_cell(ws, r, 9, round(row.candidate_score, 2),
+                      Font(name=FONT_NAME, size=CONTENT_FONT_SIZE))
+        else:
+            _set_cell(ws, r, 9, '',
+                      Font(name=FONT_NAME, size=CONTENT_FONT_SIZE))
+
+        # 证据: 通道证据摘要 / [added] / [suspicious] / UNTRACED参考候选
+        _set_cell(ws, r, 10, row.evidence,
+                  Font(name=FONT_NAME, size=CONTENT_FONT_SIZE))
+
+        # 待人工确认: ambiguous标记(AI高置信确认后由裁决器解除)
+        _set_cell(ws, r, 11, '待人工确认' if row.ambiguous else '',
+                  Font(name=FONT_NAME, size=CONTENT_FONT_SIZE,
+                       color='FF0000' if row.ambiguous else COLOR_BLACK))
+
+        # AI审核意见: LLM裁决器的输出(未启用时为空)
+        ai_color = COLOR_BLACK
+        if row.ai_opinion:
+            if row.ai_opinion.startswith('AI确认') or row.ai_opinion.startswith('AI认同'):
+                ai_color = COLOR_GREEN       # AI高置信确认
+            elif row.ai_opinion.startswith('AI建议'):
+                ai_color = COLOR_BLUE         # AI建议改溯/补漏, 需人工确认
+        _set_cell(ws, r, 12, row.ai_opinion,
+                  Font(name=FONT_NAME, size=CONTENT_FONT_SIZE, color=ai_color))
+
+        # 数据行行高: 纳入全部长文本列自适应(内容+证据+AI意见)。
+        # 此前只估算下游/上游内容两列, 证据与AI意见(均宽45)的长文本
+        # 不参与行高计算, 导致这两列被压扁看不全、需手动调整。
         _set_row_height(ws, r, [
             (row.downstream_content, 55),
-            (row.upstream_content, 60),
+            (row.upstream_content, 70),
+            (row.evidence, 48),
+            (row.ai_opinion, 48),
         ])
 
     # 合并单元格(一对多关系) —— 仅合并本sheet内完整属于该组的行
@@ -347,95 +388,35 @@ def _write_backward_sheet(ws, matrix: TraceabilityMatrix, row_indices: list[int]
                 start_row=first_row, start_column=col,
                 end_row=last_row, end_column=col,
             )
-        # 合并组行高: 以首行的下游内容(union着色)为基准, 按行数分摊
+        # 合并组行高: 组内仅 序号/条目号/下游内容 三列合并竖排, 其余列
+        # (上游内容/证据/AI意见等)每行独立显示 — 分摊值只保证合并列需求,
+        # 各行不合并列的文本需求必须逐行守护, 取 max 防止分摊压低。
         _set_merged_row_heights(ws, first_row, last_row, [
             (matrix.rows[indices[0]].downstream_content, 55),
         ])
-
-
-def _write_forward_sheet(ws, matrix: TraceabilityMatrix, forward_rows: list):
-    """写入正向追踪矩阵Sheet"""
-    headers = ['序号', '上游条目号', '上游内容', '上游文档', '下游条目号', '下游内容', '追踪匹配说明']
-    widths = [6, 22, 55, 20, 22, 55, 20]
-    _write_header_row(ws, headers, widths)
-
-    for i, fr in enumerate(forward_rows):
-        r = i + 2
-
-        _set_cell(ws, r, 1, fr['seq_number'],
-                  Font(name=FONT_NAME, size=ID_FONT_SIZE))
-        _set_cell(ws, r, 2, fr['upstream_ref'],
-                  Font(name=FONT_NAME, size=ID_FONT_SIZE))
-
-        # 上游内容(RichText)
-        match_result = fr.get('match_result')
-        if match_result and match_result.upstream_runs:
-            rich = _make_rich_text(match_result.upstream_runs, fr['upstream_content'])
-            ws.cell(row=r, column=3, value=rich)
-            ws.cell(row=r, column=3).alignment = _DATA_ALIGNMENT
-            ws.cell(row=r, column=3).border = _THIN_BORDER
-        else:
-            _set_cell(ws, r, 3, fr['upstream_content'],
-                      Font(name=FONT_NAME, size=CONTENT_FONT_SIZE))
-
-        _set_cell(ws, r, 4, fr['upstream_doc'],
-                  Font(name=FONT_NAME, size=ID_FONT_SIZE))
-        _set_cell(ws, r, 5, fr['downstream_id'],
-                  Font(name=FONT_NAME, size=ID_FONT_SIZE))
-
-        # 下游内容(RichText)
-        if match_result and match_result.downstream_runs:
-            rich = _make_rich_text(match_result.downstream_runs, fr['downstream_content'])
-            ws.cell(row=r, column=6, value=rich)
-            ws.cell(row=r, column=6).alignment = _DATA_ALIGNMENT
-            ws.cell(row=r, column=6).border = _THIN_BORDER
-        else:
-            _set_cell(ws, r, 6, fr['downstream_content'],
-                      Font(name=FONT_NAME, size=CONTENT_FONT_SIZE))
-
-        # 追踪匹配说明
-        if match_result:
-            desc = _category_to_description(match_result.overall_category)
-        else:
-            desc = ''
-        _set_cell(ws, r, 7, desc,
-                  Font(name=FONT_NAME, size=ID_FONT_SIZE))
-
-        # 数据行行高: 上游内容(55)、下游内容(55) 按换行/列宽估算
-        _set_row_height(ws, r, [
-            (fr.get('upstream_content', ''), 55),
-            (fr.get('downstream_content', ''), 55),
-        ])
-
-    # 合并单元格(上游侧)
-    for seq, indices in matrix.forward_merge_groups.items():
-        if len(indices) < 2:
-            continue
-        first_row = indices[0] + 2
-        last_row = indices[-1] + 2
-        for col in [1, 2, 3]:  # 序号、上游条目号、上游内容
-            ws.merge_cells(
-                start_row=first_row, start_column=col,
-                end_row=last_row, end_column=col,
-            )
-        # 合并组行高: 以上游内容为基准, 按行数分摊
-        fr0 = forward_rows[indices[0]]
-        _set_merged_row_heights(ws, first_row, last_row, [
-            (fr0.get('upstream_content', ''), 55),
-        ])
+        for idx in indices:
+            r = local_row[idx]
+            row = matrix.rows[idx]
+            prev = ws.row_dimensions[r].height or 15.0
+            _set_row_height(ws, r, [
+                (row.upstream_content, 70),
+                (row.evidence, 48),
+                (row.ai_opinion, 48),
+            ])
+            ws.row_dimensions[r].height = max(prev, ws.row_dimensions[r].height)
 
 
 def _write_header_row(ws, headers: list[str], widths: list[int]):
     """写入表头行"""
+    from openpyxl.utils import get_column_letter
     for col_idx, (header, width) in enumerate(zip(headers, widths), 1):
         cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
         cell.alignment = _HEADER_ALIGNMENT
         cell.border = _THIN_BORDER
-        # 设置列宽
-        col_letter = chr(64 + col_idx) if col_idx <= 26 else 'A'
-        ws.column_dimensions[col_letter].width = width
+        # 设置列宽(支持>26列: AA/AB/...)
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
 
 
 def _set_cell(ws, row: int, col: int, value, font: Font):
@@ -444,16 +425,6 @@ def _set_cell(ws, row: int, col: int, value, font: Font):
     cell.font = font
     cell.alignment = _DATA_ALIGNMENT
     cell.border = _THIN_BORDER
-
-
-def _category_to_description(category: MatchCategory) -> str:
-    """匹配类别转为文字描述"""
-    if category == MatchCategory.GREEN:
-        return '一致'
-    elif category == MatchCategory.BLUE:
-        return '部分匹配'
-    else:
-        return '不一致'
 
 
 # ============================================================

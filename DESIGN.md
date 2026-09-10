@@ -3,7 +3,12 @@ title: 核仪控工程文档追踪验证系统 — 设计说明
 tags: [traceability, ic-design, nlp, architecture, obsidian]
 created: 2026-07-08
 updated: 2026-07-08
+deprecated: true
 ---
+
+> [!warning] 本文档已过时（2026-09-09 起停用）
+> 本文档与当前代码存在多处不一致（如 §6.5 分类阈值、§11.4 NLI 性能问题等已失效）。
+> **最新设计说明请阅读 [[追踪设计说明]]（`追踪设计说明.md`）**，本文仅作历史参考保留。
 
 # 核仪控工程文档追踪验证系统 — 设计说明
 
